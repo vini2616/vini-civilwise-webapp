@@ -3,6 +3,7 @@ import { useData } from '../context/DataContext';
 import ShapeVisualizer from './ShapeVisualizer';
 
 const ShapeManager = ({ onNavigate }) => {
+    // Optimized Shape Manager - Force HMR Update
     const { customShapes, addCustomShape, updateCustomShape, deleteCustomShape, restoreDefaultShapes } = useData();
     const [view, setView] = useState('list'); // 'list' or 'form'
     const [editingId, setEditingId] = useState(null);
@@ -39,23 +40,34 @@ const ShapeManager = ({ onNavigate }) => {
 
     // Deduction Management
     const updateDeduction = (angle, value) => {
-        setFormData({
-            ...formData,
-            deductions: { ...formData.deductions, [angle]: parseInt(value) || 0 }
-        });
+        setFormData(prev => ({
+            ...prev,
+            deductions: {
+                ...prev.deductions,
+                [angle]: value === '' ? '' : (parseInt(value) || 0)
+            }
+        }));
     };
 
     // Preview Generation
     const getPreviewText = () => {
-
-        const segText = formData.segments.map(s => {
+        const segments = Array.isArray(formData.segments) ? formData.segments : [];
+        const segText = segments.map(s => {
             let text = `${s.label}`;
             if (s.multiplier > 1) text += `(x${s.multiplier})`;
             return text;
         }).join(' + ');
 
-        const dedText = Object.entries(formData.deductions)
-            .filter(([_, count]) => count > 0)
+        // Safely handle deductions
+        let dedObj = formData.deductions;
+        if (Array.isArray(dedObj)) {
+            dedObj = {};
+        }
+        if (!dedObj || typeof dedObj !== 'object') dedObj = {};
+
+        const allowedAngles = ['45', '90', '135', '180'];
+        const dedText = Object.entries(dedObj)
+            .filter(([angle, count]) => allowedAngles.includes(angle) && count > 0)
             .map(([angle, count]) => {
                 const d = angle === '45' ? '1d' : angle === '90' ? '2d' : angle === '135' ? '3d' : '4d';
                 return `${count}x${angle}°(${d})`;
@@ -74,36 +86,79 @@ const ShapeManager = ({ onNavigate }) => {
             return;
         }
 
+        // Sanitize deductions for save
+        const sanitizedDeductions = {};
+        Object.entries(formData.deductions).forEach(([key, val]) => {
+            sanitizedDeductions[key] = val === '' ? 0 : (parseInt(val) || 0);
+        });
+
         const shapeData = {
             id: editingId,
             name: formData.name,
             description: formData.description,
             type: 'SEGMENT_BASED',
             segments: formData.segments,
-            deductions: formData.deductions
+            deductions: sanitizedDeductions
         };
 
-        if (editingId) {
-            await updateCustomShape(shapeData);
-        } else {
-            await addCustomShape(shapeData);
+        try {
+            let result;
+            if (editingId) {
+                result = await updateCustomShape(shapeData);
+            } else {
+                result = await addCustomShape(shapeData);
+            }
+
+            if (result && result.success) {
+                resetForm();
+                setView('list');
+            } else {
+                alert("Failed to save shape: " + (result?.message || "Unknown error"));
+            }
+        } catch (error) {
+            console.error("Save Error:", error);
+            alert("An error occurred while saving: " + error.message);
         }
-        resetForm();
-        setView('list');
     };
 
     const handleEdit = (shape) => {
-        if (shape.type === 'SEGMENT_BASED') {
+        console.log("Editing Shape Data:", shape);
+        if (shape.type === 'SEGMENT_BASED' || !shape.type) { // Default to SEGMENT_BASED if missing
+
+            // Robust parsing for deductions
+            let safeDeductions = shape.deductions;
+            if (typeof safeDeductions === 'string') {
+                try { safeDeductions = JSON.parse(safeDeductions); } catch (e) { safeDeductions = {}; }
+            }
+            if (Array.isArray(safeDeductions) || !safeDeductions || typeof safeDeductions !== 'object') {
+                safeDeductions = {};
+            }
+
+            // Clean keys
+            const cleanDeductions = { 45: 0, 90: 0, 135: 0, 180: 0 };
+            ['45', '90', '135', '180'].forEach(angle => {
+                if (safeDeductions[angle] !== undefined && safeDeductions[angle] !== null) {
+                    cleanDeductions[angle] = parseInt(safeDeductions[angle]) || 0;
+                }
+            });
+
+            // Robust parsing for segments
+            let safeSegments = shape.segments;
+            if (typeof safeSegments === 'string') {
+                try { safeSegments = JSON.parse(safeSegments); } catch (e) { safeSegments = []; }
+            }
+            if (!Array.isArray(safeSegments)) safeSegments = [];
+
             setFormData({
                 name: shape.name,
                 description: shape.description || '',
-                segments: shape.segments || [],
-                deductions: shape.deductions || { 45: 0, 90: 0, 135: 0, 180: 0 }
+                segments: safeSegments,
+                deductions: cleanDeductions
             });
             setEditingId(shape._id || shape.id);
             setView('form');
         } else {
-            alert("Editing legacy formula-based shapes is not supported in this builder. Please recreate it.");
+            alert("Only Segment-Based shapes can be edited in this builder.");
         }
     };
 
@@ -175,7 +230,7 @@ const ShapeManager = ({ onNavigate }) => {
                         <div className="form-section">
                             <label>Formula Preview</label>
                             <div className="p-2 bg-gray-50 border rounded text-lg font-mono text-blue-600">
-                                {formData.segments.length > 0 ? getPreviewText() : 'Add segments to see formula'}
+                                {(formData.segments && formData.segments.length > 0) ? getPreviewText() : 'Add segments to see formula'}
                             </div>
                             <p className="text-xs text-gray-500 mt-1">Auto-calculated based on segments and deductions.</p>
                         </div>
@@ -187,7 +242,7 @@ const ShapeManager = ({ onNavigate }) => {
                                     <button onClick={addSegment} className="btn btn-sm btn-primary">+ Add Segment</button>
                                 </div>
                                 <div className="segments-list">
-                                    {formData.segments.map((segment, index) => (
+                                    {Array.isArray(formData.segments) && formData.segments.map((segment, index) => (
                                         <div key={index} className="segment-row">
                                             <div className="drag-handle">::</div>
                                             <div className="field-group">
@@ -212,7 +267,7 @@ const ShapeManager = ({ onNavigate }) => {
                                             <button onClick={() => removeSegment(index)} className="btn-icon delete">×</button>
                                         </div>
                                     ))}
-                                    {formData.segments.length === 0 && <p className="text-muted">No segments added.</p>}
+                                    {(!formData.segments || formData.segments.length === 0) && <p className="text-muted">No segments added.</p>}
                                 </div>
                             </div>
 

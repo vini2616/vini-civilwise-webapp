@@ -2,11 +2,11 @@ const API_URL = import.meta.env.VITE_API_URL + "/api";
 
 export const api = {
     // Auth
-    register: async (name, email, password) => {
+    register: async (name, email, password, role) => {
         const res = await fetch(`${API_URL}/auth/register`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name, email, password }),
+            body: JSON.stringify({ name, email, password, role }),
         });
         return res.json();
     },
@@ -52,14 +52,14 @@ export const api = {
         return res.json();
     },
 
-    assignUserToSite: async (token, username, siteId) => {
+    assignUserToSite: async (token, userId, siteId) => {
         const res = await fetch(`${API_URL}/auth/assign-site`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 Authorization: `Bearer ${token}`,
             },
-            body: JSON.stringify({ username, siteId }),
+            body: JSON.stringify({ userId, siteId }),
         });
         return res.json();
     },
@@ -113,7 +113,7 @@ export const api = {
                 'Content-Type': 'application/json',
                 Authorization: `Bearer ${token}`,
             },
-            body: JSON.stringify(updates),
+            body: JSON.stringify({ ...updates, siteId }),
         });
         return res.json();
     },
@@ -390,9 +390,17 @@ export const api = {
 
     // DPR
     getDPRs: async (token, siteId) => {
-        const res = await fetch(`${API_URL}/dpr/${siteId}`, {
+        const res = await fetch(`${API_URL}/dpr?siteId=${siteId}`, {
             headers: { Authorization: `Bearer ${token}` },
         });
+        return res.json();
+    },
+
+    getDPRById: async (token, id) => {
+        const res = await fetch(`${API_URL}/dpr/${id}`, {
+            headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) throw new Error("Failed to fetch DPR");
         return res.json();
     },
 
@@ -425,12 +433,16 @@ export const api = {
             method: 'DELETE',
             headers: { Authorization: `Bearer ${token}` },
         });
+        if (!res.ok) {
+            const data = await res.json();
+            throw new Error(data.message || 'Failed to delete');
+        }
         return res.json();
     },
 
     // Estimations
     getEstimations: async (token, siteId) => {
-        const res = await fetch(`${API_URL}/estimations/${siteId}`, {
+        const res = await fetch(`${API_URL}/estimations?siteId=${siteId}`, {
             headers: { Authorization: `Bearer ${token}` },
         });
         return res.json();
@@ -470,10 +482,13 @@ export const api = {
 
     // Inventory
     getInventory: async (token, siteId) => {
-        const res = await fetch(`${API_URL}/inventory/${siteId}`, {
-            headers: { Authorization: `Bearer ${token}` },
-        });
-        return res.json();
+        try {
+            const res = await fetch(`${API_URL}/inventory?siteId=${siteId}`, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            if (res.status === 404) return []; // Silence 404s
+            return res.json();
+        } catch (e) { return []; }
     },
 
     createInventoryItem: async (token, itemData) => {
@@ -510,7 +525,7 @@ export const api = {
 
     // Contacts
     getContacts: async (token, siteId) => {
-        const res = await fetch(`${API_URL}/contacts/${siteId}`, {
+        const res = await fetch(`${API_URL}/contacts?siteId=${siteId}`, {
             headers: { Authorization: `Bearer ${token}` },
         });
         return res.json();
@@ -550,13 +565,15 @@ export const api = {
 
     // Manpower
     getManpowerResources: async (token, siteId) => {
-        const res = await fetch(`${API_URL}/manpower/resources?siteId=${siteId}`, {
+        let url = `${API_URL}/manpower`;
+        if (siteId) url += `?siteId=${siteId}`;
+        const res = await fetch(url, {
             headers: { Authorization: `Bearer ${token}` },
         });
         return res.json();
     },
     createManpowerResource: async (token, data) => {
-        const res = await fetch(`${API_URL}/manpower/resources`, {
+        const res = await fetch(`${API_URL}/manpower`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
             body: JSON.stringify(data),
@@ -564,7 +581,7 @@ export const api = {
         return res.json();
     },
     updateManpowerResource: async (token, id, data) => {
-        const res = await fetch(`${API_URL}/manpower/resources/${id}`, {
+        const res = await fetch(`${API_URL}/manpower/${id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
             body: JSON.stringify(data),
@@ -572,7 +589,7 @@ export const api = {
         return res.json();
     },
     deleteManpowerResource: async (token, id) => {
-        const res = await fetch(`${API_URL}/manpower/resources/${id}`, {
+        const res = await fetch(`${API_URL}/manpower/${id}`, {
             method: 'DELETE',
             headers: { Authorization: `Bearer ${token}` },
         });
@@ -580,7 +597,9 @@ export const api = {
     },
 
     getManpowerAttendance: async (token, siteId) => {
-        const res = await fetch(`${API_URL}/manpower/attendance?siteId=${siteId}`, {
+        let url = `${API_URL}/manpower/attendance`;
+        if (siteId) url += `?siteId=${siteId}`;
+        const res = await fetch(url, {
             headers: { Authorization: `Bearer ${token}` },
         });
         return res.json();
@@ -618,7 +637,7 @@ export const api = {
 
     // Attendance
     getAttendance: async (token, siteId) => {
-        const res = await fetch(`${API_URL}/attendance/${siteId}`, {
+        const res = await fetch(`${API_URL}/attendance?siteId=${siteId}`, {
             headers: { Authorization: `Bearer ${token}` },
         });
         return res.json();
@@ -657,11 +676,24 @@ export const api = {
     },
 
     // Materials
-    getMaterials: async (token, siteId) => {
-        const res = await fetch(`${API_URL}/materials/${siteId}`, {
-            headers: { Authorization: `Bearer ${token}` },
+    // Documents / Uploads
+    uploadDocument: async (token, formData) => {
+        const res = await fetch(`${API_URL}/documents`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}` }, // Content-Type is auto-set by FormData
+            body: formData,
         });
         return res.json();
+    },
+
+    getMaterials: async (token, siteId) => {
+        try {
+            const res = await fetch(`${API_URL}/materials?siteId=${siteId}`, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            if (res.status === 404) return [];
+            return res.json();
+        } catch (e) { return []; }
     },
 
     createMaterial: async (token, materialData) => {
@@ -706,7 +738,7 @@ export const api = {
 
     // Checklists
     getChecklists: async (token, siteId) => {
-        const res = await fetch(`${API_URL}/checklists/${siteId}`, {
+        const res = await fetch(`${API_URL}/checklists?siteId=${siteId}`, {
             headers: { Authorization: `Bearer ${token}` },
         });
         return res.json();
@@ -733,7 +765,21 @@ export const api = {
             },
             body: JSON.stringify(checklistData),
         });
-        return res.json();
+
+        const text = await res.text();
+
+        try {
+            const data = JSON.parse(text);
+            if (!res.ok) throw new Error(data.message || data.error || "Update failed");
+            return data;
+        } catch (e) {
+            console.error("Failed to parse server response:", text.substring(0, 500));
+            if (text.trim().startsWith("<")) {
+                const title = text.match(/<title>(.*?)<\/title>/)?.[1] || "Unknown HTML Error";
+                throw new Error(`Server Error (${res.status}): ${title}`);
+            }
+            throw new Error(`Server returned invalid JSON (${res.status}): ${e.message}. Response: ${text.substring(0, 50)}...`);
+        }
     },
 
     deleteChecklist: async (token, id) => {
@@ -746,7 +792,7 @@ export const api = {
 
     // Project Tasks
     getProjectTasks: async (token, siteId) => {
-        const res = await fetch(`${API_URL}/project-tasks/${siteId}`, {
+        const res = await fetch(`${API_URL}/project-tasks?siteId=${siteId}`, {
             headers: { Authorization: `Bearer ${token}` },
         });
         return res.json();
@@ -786,7 +832,7 @@ export const api = {
 
     // Custom Shapes
     getCustomShapes: async (token, siteId) => {
-        const res = await fetch(`${API_URL}/custom-shapes/${siteId}`, {
+        const res = await fetch(`${API_URL}/custom-shapes?siteId=${siteId}`, {
             headers: { Authorization: `Bearer ${token}` },
         });
         return res.json();
@@ -864,91 +910,7 @@ export const api = {
         return res.json();
     },
 
-    // Manpower
-    getManpowerResources: async (token, siteId) => {
-        const res = await fetch(`${API_URL}/manpower/resources?siteId=${siteId}`, {
-            headers: { Authorization: `Bearer ${token}` },
-        });
-        return res.json();
-    },
 
-    createManpowerResource: async (token, data) => {
-        const res = await fetch(`${API_URL}/manpower/resources`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify(data),
-        });
-        return res.json();
-    },
-
-    updateManpowerResource: async (token, id, data) => {
-        const res = await fetch(`${API_URL}/manpower/resources/${id}`, {
-            method: 'PUT',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify(data),
-        });
-        return res.json();
-    },
-
-    deleteManpowerResource: async (token, id) => {
-        const res = await fetch(`${API_URL}/manpower/resources/${id}`, {
-            method: 'DELETE',
-            headers: { Authorization: `Bearer ${token}` },
-        });
-        return res.json();
-    },
-
-    getManpowerAttendance: async (token, siteId) => {
-        const res = await fetch(`${API_URL}/manpower/attendance?siteId=${siteId}`, {
-            headers: { Authorization: `Bearer ${token}` },
-        });
-        return res.json();
-    },
-
-    saveManpowerAttendance: async (token, data) => {
-        const res = await fetch(`${API_URL}/manpower/attendance`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify(data),
-        });
-        return res.json();
-    },
-
-    getManpowerPayments: async (token, siteId) => {
-        const res = await fetch(`${API_URL}/manpower/payments?siteId=${siteId}`, {
-            headers: { Authorization: `Bearer ${token}` },
-        });
-        return res.json();
-    },
-
-    createManpowerPayment: async (token, data) => {
-        const res = await fetch(`${API_URL}/manpower/payments`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify(data),
-        });
-        return res.json();
-    },
-
-    deleteManpowerPayment: async (token, id) => {
-        const res = await fetch(`${API_URL}/manpower/payments/${id}`, {
-            method: 'DELETE',
-            headers: { Authorization: `Bearer ${token}` },
-        });
-        return res.json();
-    },
 
     // Chat
     getMessages: async (token, siteId) => {
@@ -1009,15 +971,35 @@ export const api = {
     },
 
     createDocument: async (token, docData) => {
-        const res = await fetch(`${API_URL}/documents`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify(docData),
-        });
-        return res.json();
+        const isFormData = docData instanceof FormData;
+        const headers = {
+            Authorization: `Bearer ${token}`,
+        };
+        // Only set Content-Type if NOT FormData (browser sets boundary for FormData)
+        if (!isFormData) {
+            headers['Content-Type'] = 'application/json';
+        }
+
+        try {
+            const res = await fetch(`${API_URL}/documents`, {
+                method: 'POST',
+                headers: headers,
+                body: isFormData ? docData : JSON.stringify(docData),
+            });
+
+            if (!res.ok) {
+                const errText = await res.text();
+                try {
+                    return JSON.parse(errText);
+                } catch (e) {
+                    return { message: `Server Error (${res.status}): ${errText.substring(0, 50)}...` };
+                }
+            }
+            return await res.json();
+        } catch (e) {
+            console.error("createDocument API Error:", e);
+            return { message: e.message || "Network Request Failed" };
+        }
     },
 
     updateReport: async (token, id, data) => {
@@ -1029,7 +1011,12 @@ export const api = {
             },
             body: JSON.stringify(data),
         });
-        return res.json();
+        try {
+            return await res.json();
+        } catch (e) {
+            console.error("Non-JSON response for updateReport", e);
+            return { message: "Server Error: Non-JSON Response" };
+        }
     },
 
     deleteDocument: async (token, id) => {
@@ -1053,11 +1040,16 @@ export const api = {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                Authorization: `Bearer ${token}`,
+                Authorization: `Bearer ${token}`
             },
             body: JSON.stringify(reportData),
         });
-        return res.json();
+        try {
+            return await res.json();
+        } catch (e) {
+            console.error("Non-JSON response for createReport", e);
+            return { message: "Server Error: Non-JSON Response" };
+        }
     },
 
     deleteReport: async (token, id) => {

@@ -1,25 +1,44 @@
 import React, { useState, useEffect } from 'react';
 import { useData } from '../../context/DataContext';
+import { checkPermission, canEditDelete } from '../../utils/permissions';
 
 const ChecklistForm = ({ checklistData, onNavigate }) => {
-    const { updateChecklist, deleteChecklist } = useData();
+    const { updateChecklist, deleteChecklist, currentUser } = useData();
     const [checklist, setChecklist] = useState(checklistData);
 
+    // Safely parse items once or whenever checklist changes
+    const [itemsList, setItemsList] = useState([]);
+
     useEffect(() => {
-        setChecklist(checklistData);
+        console.log("ChecklistForm Loaded. Data:", checklistData);
+        if (!checklistData?.id && !checklistData?._id) {
+            console.error("Checklist ID is MISSING in checklistData!");
+            alert("Error: This checklist is invalid (missing ID). Please go back and try again.");
+        }
+
+        let safeItems = checklistData.items;
+        if (typeof safeItems === 'string') {
+            try { safeItems = JSON.parse(safeItems); } catch (e) { safeItems = []; }
+        }
+        if (!Array.isArray(safeItems)) safeItems = [];
+        setItemsList(safeItems);
+        setChecklist({ ...checklistData, items: safeItems });
     }, [checklistData]);
 
     const handleStatusChange = (itemId, status) => {
-        const updatedItems = checklist.items.map(item =>
+        const updatedItems = itemsList.map(item =>
             item.id === itemId ? { ...item, status } : item
         );
+        setItemsList(updatedItems); // Optimistic UI update
         updateChecklistState(updatedItems);
     };
 
     const handleRemarkChange = (itemId, remark) => {
-        const updatedItems = checklist.items.map(item =>
+        const updatedItems = itemsList.map(item =>
             item.id === itemId ? { ...item, remark } : item
         );
+        setItemsList(updatedItems); // Optimistic UI update
+        // Debounce this call ideally, but valid for now
         updateChecklistState(updatedItems);
     };
 
@@ -28,16 +47,17 @@ const ChecklistForm = ({ checklistData, onNavigate }) => {
 
         const reader = new FileReader();
         reader.onloadend = () => {
-            const updatedItems = checklist.items.map(item =>
+            const updatedItems = itemsList.map(item =>
                 item.id === itemId ? { ...item, photos: [...(item.photos || []), reader.result] } : item
             );
+            setItemsList(updatedItems);
             updateChecklistState(updatedItems);
         };
         reader.readAsDataURL(file);
     };
 
     const removePhoto = (itemId, photoIndex) => {
-        const updatedItems = checklist.items.map(item => {
+        const updatedItems = itemsList.map(item => {
             if (item.id === itemId) {
                 const newPhotos = [...(item.photos || [])];
                 newPhotos.splice(photoIndex, 1);
@@ -45,10 +65,11 @@ const ChecklistForm = ({ checklistData, onNavigate }) => {
             }
             return item;
         });
+        setItemsList(updatedItems);
         updateChecklistState(updatedItems);
     };
 
-    const updateChecklistState = (updatedItems) => {
+    const updateChecklistState = async (updatedItems) => {
         const totalItems = updatedItems.length;
         const completedItems = updatedItems.filter(i => i.status === 'Approved' || i.status === 'Rejected').length;
         const progress = totalItems > 0 ? (completedItems / totalItems) * 100 : 0;
@@ -58,20 +79,41 @@ const ChecklistForm = ({ checklistData, onNavigate }) => {
 
         const updatedChecklist = {
             ...checklist,
-            items: updatedItems,
+            items: JSON.stringify(updatedItems), // Ensure items is sent as a string to avoid parsing issues
             progress,
             status
         };
 
         setChecklist(updatedChecklist);
-        updateChecklist(checklist._id || checklist.id, updatedChecklist);
+
+        try {
+            await updateChecklist(checklist._id || checklist.id, updatedChecklist);
+        } catch (error) {
+            console.error("Failed to save checklist update:", error);
+            // Optional: revert state or show toast
+        }
     };
 
-    const handleComplete = () => {
-        const completedChecklist = { ...checklist, status: 'Completed', progress: 100 };
-        updateChecklist(checklist._id || checklist.id, completedChecklist);
-        setChecklist(completedChecklist);
-        onNavigate('checklist');
+    const handleComplete = async () => {
+        try {
+            const completedChecklist = {
+                ...checklist,
+                items: JSON.stringify(itemsList), // Use latest itemsList
+                status: 'Completed',
+                progress: 100
+            };
+            const result = await updateChecklist(checklist._id || checklist.id, completedChecklist);
+
+            if (result && result.success) {
+                setChecklist(completedChecklist);
+                onNavigate('checklist');
+            } else {
+                alert(`Failed to save data: ${result?.error || "Unknown error"}`);
+            }
+        } catch (error) {
+            console.error("Error completing checklist:", error);
+            alert("An error occurred while saving.");
+        }
     };
 
     const handleDelete = () => {
@@ -94,7 +136,7 @@ const ChecklistForm = ({ checklistData, onNavigate }) => {
                     <p className="text-muted">{checklist.templateName} • {new Date(checklist.createdAt).toLocaleDateString()}</p>
                 </div>
                 <div className="status-indicator">
-                    <span className={`status-badge ${(checklist.items?.some(i => i.status === 'Rejected') ? 'rejected' : (checklist.status || 'In Progress').toLowerCase().replace(' ', '-'))}`}>
+                    <span className={`status-badge ${(itemsList.some(i => i.status === 'Rejected') ? 'rejected' : (checklist.status || 'In Progress').toLowerCase().replace(' ', '-'))}`}>
                         {checklist.status || 'In Progress'}
                     </span>
                 </div>
@@ -109,7 +151,7 @@ const ChecklistForm = ({ checklistData, onNavigate }) => {
                 </div>
 
                 <div className="checklist-items">
-                    {checklist.items.map(item => (
+                    {itemsList.map(item => (
                         <div key={item.id} className={`checklist-item ${(item.status || 'pending').toLowerCase()}`}>
                             <div className="item-content">
                                 <p className="item-text">{item.text}</p>
@@ -164,22 +206,24 @@ const ChecklistForm = ({ checklistData, onNavigate }) => {
 
 
                 <div className="form-actions" style={{ marginTop: 30, textAlign: 'right', display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-                    <button
-                        className="btn-delete"
-                        onClick={handleDelete}
-                        style={{
-                            padding: '12px 24px',
-                            backgroundColor: '#ef4444',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: '8px',
-                            fontSize: '1rem',
-                            cursor: 'pointer',
-                            fontWeight: '600'
-                        }}
-                    >
-                        Delete
-                    </button>
+                    {canEditDelete(checkPermission(currentUser, 'checklist'), checklist.createdAt) && (
+                        <button
+                            className="btn-delete"
+                            onClick={handleDelete}
+                            style={{
+                                padding: '12px 24px',
+                                backgroundColor: '#ef4444',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '8px',
+                                fontSize: '1rem',
+                                cursor: 'pointer',
+                                fontWeight: '600'
+                            }}
+                        >
+                            Delete
+                        </button>
+                    )}
                     <button
                         className="btn-complete"
                         onClick={handleComplete}

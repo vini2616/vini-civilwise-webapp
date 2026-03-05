@@ -136,13 +136,14 @@ const Cashbook = ({ currentUser }) => {
         targetUser={selectedUser}
         onBack={isAdmin ? () => setSelectedUser(null) : null}
         data={{ transactions, addTransaction, updateTransaction, deleteTransaction, customCategories, addCustomCategory, savedParties, addSavedParty }}
-        permissions={{ canAdd, canEdit, isAdmin }}
+        permissions={{ canAdd, isAdmin }}
+        permission={permission}
     />;
 };
 
 // Separated Component for the Ledger View to keep things clean
-const UserLedger = ({ currentUser, targetUser, onBack, data, permissions }) => {
-    const { canAdd, canEdit, isAdmin } = permissions;
+const UserLedger = ({ currentUser, targetUser, onBack, data, permissions, permission }) => {
+    const { canAdd, isAdmin } = permissions;
     const { transactions, addTransaction, updateTransaction, deleteTransaction, customCategories, addCustomCategory, savedParties, addSavedParty } = data;
 
     const [showModal, setShowModal] = useState(false);
@@ -256,7 +257,7 @@ const UserLedger = ({ currentUser, targetUser, onBack, data, permissions }) => {
         e.preventDefault();
         const transactionData = {
             ...formData,
-            amount: Number(formData.amount),
+            categoryId: formData.category, // Mapped from form
             amount: Number(formData.amount),
             userId: targetUser._id || targetUser.id, // IMPORTANT: Save as Target User (Handle _id/id)
             userName: targetUser.name,
@@ -302,13 +303,10 @@ const UserLedger = ({ currentUser, targetUser, onBack, data, permissions }) => {
         if (window.confirm('Delete this entry?')) deleteTransaction(id);
     };
 
+    const [viewingImage, setViewingImage] = useState(null);
+
     const viewBill = (imageStr) => {
-        const win = window.open("");
-        if (imageStr.startsWith('data:application/pdf')) {
-            win.document.write(`<iframe src="${imageStr}" style="width:100%; height:100vh; border:none;"></iframe>`);
-        } else {
-            win.document.write(`<img src="${imageStr}" style="max-width:100%; height:auto;" />`);
-        }
+        setViewingImage(imageStr);
     };
 
 
@@ -381,7 +379,7 @@ const UserLedger = ({ currentUser, targetUser, onBack, data, permissions }) => {
                             <th>Mode</th>
                             <th>Amount</th>
                             <th>Bill</th>
-                            {canEdit && <th>Actions</th>}
+                            {permission !== 'view_only' && permission !== 'no_access' && <th>Actions</th>}
                         </tr>
                     </thead>
                     <tbody>
@@ -392,6 +390,7 @@ const UserLedger = ({ currentUser, targetUser, onBack, data, permissions }) => {
                                     <td>
                                         <div className="font-medium">{t.partyName || 'Unknown'}</div>
                                         <div className="text-xs text-muted">{t.note || '-'}</div>
+                                        {t.enteredBy && <div className="text-xs text-muted" style={{ fontSize: '0.7em', marginTop: '2px' }}>By: {t.enteredBy}{t.editedBy ? `, Mod: ${t.editedBy}` : ''}</div>}
                                     </td>
                                     <td><span className="badge">{t.category || 'General'}</span></td>
                                     <td className="capitalize">{t.mode}</td>
@@ -404,24 +403,41 @@ const UserLedger = ({ currentUser, targetUser, onBack, data, permissions }) => {
                                             {t.paymentProof && <button onClick={() => viewBill(t.paymentProof)} className="btn-link text-xs">📷 Proof</button>}
                                         </div>
                                     </td>
-                                    {canEdit && (
+                                    {permission !== 'view_only' && permission !== 'no_access' && (
                                         <td>
-                                            <div className="action-buttons">
-                                                <button onClick={() => handleEdit(t)} className="btn-icon edit">✏️</button>
-                                                <button onClick={() => handleDelete(t._id || t.id)} className="btn-icon delete">🗑️</button>
-                                            </div>
+                                            {canEditDelete(permission, t.createdAt) && (
+                                                <div className="action-buttons">
+                                                    <button onClick={() => handleEdit(t)} className="btn-icon edit">✏️</button>
+                                                    <button onClick={() => handleDelete(t._id || t.id)} className="btn-icon delete">🗑️</button>
+                                                </div>
+                                            )}
                                         </td>
                                     )}
                                 </tr>
                             ))
                         ) : (
-                            <tr><td colSpan={canEdit ? "7" : "6"} className="text-center py-8 text-muted">No entries found.</td></tr>
+                            <tr><td colSpan={permission !== 'view_only' && permission !== 'no_access' ? "7" : "6"} className="text-center py-8 text-muted">No entries found.</td></tr>
                         )}
                     </tbody>
                 </table>
             </div>
 
             {/* Modal */}
+            {viewingImage && (
+                <div className="modal-overlay" onClick={() => setViewingImage(null)}>
+                    <div className="modal-content" style={{ maxWidth: '90vw', maxHeight: '90vh', width: 'auto', padding: '10px', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '10px' }}>
+                            <button onClick={() => setViewingImage(null)} className="close-btn" style={{ fontSize: '2rem', lineHeight: '1' }}>&times;</button>
+                        </div>
+                        {viewingImage.startsWith('data:application/pdf') ? (
+                            <iframe src={viewingImage} style={{ width: '100%', height: '80vh', border: 'none' }} title="Bill PDF"></iframe>
+                        ) : (
+                            <img src={viewingImage} alt="Bill" style={{ maxWidth: '100%', maxHeight: '80vh', objectFit: 'contain' }} />
+                        )}
+                    </div>
+                </div>
+            )}
+
             {showModal && (
                 <div className="modal-overlay">
                     <div className="modal-content">
@@ -488,7 +504,7 @@ const UserLedger = ({ currentUser, targetUser, onBack, data, permissions }) => {
                                 </div>
                                 <div className="form-group full-width">
                                     <label>Bill Image</label>
-                                    <input type="file" accept="image/*,application/pdf" onChange={e => handleFileChange(e, 'billImage')} className="form-input" />
+                                    <input type="file" accept="image/*" onChange={e => handleFileChange(e, 'billImage')} className="form-input" />
                                 </div>
                             </div>
                             <div className="modal-actions">

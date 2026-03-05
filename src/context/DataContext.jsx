@@ -185,8 +185,8 @@ export const DataProvider = ({ children }) => {
     // Fetch Sites on Load
     useEffect(() => {
         if (currentUser && currentUser.token) {
-            // Only fetch sites if activeCompanyId is a valid ObjectId (24 hex chars)
-            if (activeCompanyId && /^[0-9a-fA-F]{24}$/.test(activeCompanyId)) {
+            // Only fetch sites if activeCompanyId is a valid ObjectId (24 hex chars) or numeric ID
+            if (activeCompanyId && (/^[0-9a-fA-F]{24}$/.test(activeCompanyId) || /^\d+$/.test(activeCompanyId))) {
                 api.getSites(currentUser.token, activeCompanyId).then(fetchedSites => {
                     if (Array.isArray(fetchedSites) && fetchedSites.length > 0) {
                         setSites(fetchedSites);
@@ -206,7 +206,7 @@ export const DataProvider = ({ children }) => {
     const refreshData = React.useCallback(async () => {
         if (activeSite && currentUser && currentUser.token) {
             // Fetch users for this specific site
-            const isValidSiteId = /^[0-9a-fA-F]{24}$/.test(activeSite);
+            const isValidSiteId = /^[0-9a-fA-F]{24}$/.test(activeSite) || /^\d+$/.test(activeSite);
             if (isValidSiteId) {
                 api.getUsers(currentUser.token, activeSite).then(siteUsers => {
                     if (Array.isArray(siteUsers)) setUsers(siteUsers);
@@ -302,7 +302,13 @@ export const DataProvider = ({ children }) => {
                                 }
                             } catch (e) { console.error("Migration failed", e); }
                         }
-                        setEstimations(fetched);
+                        const parsed = fetched.map(est => {
+                            if (typeof est.items === 'string') {
+                                try { return { ...est, items: JSON.parse(est.items) }; } catch (e) { return { ...est, items: [] }; }
+                            }
+                            return est;
+                        });
+                        setEstimations(parsed);
                     }
                 }).catch(err => console.error("Failed to fetch estimations:", err));
 
@@ -385,30 +391,50 @@ export const DataProvider = ({ children }) => {
                     }
                 }).catch(err => console.error("Failed to fetch project tasks:", err));
 
+                // Fetch Site Settings (Master Data)
+                api.getSiteSettings(currentUser.token, activeSite).then(settings => {
+                    if (settings && !settings.message && !settings.error) {
+                        console.log("Loaded Site Settings:", settings);
+                        // If it's an array (legacy) take first, otherwise it's object
+                        const config = Array.isArray(settings) ? settings[0] : settings;
+                        if (config) {
+                            // Helper to ensure array
+                            const parseList = (val) => {
+                                if (Array.isArray(val)) return val;
+                                if (typeof val === 'string') {
+                                    try {
+                                        const parsed = JSON.parse(val);
+                                        return Array.isArray(parsed) ? parsed : [];
+                                    } catch (e) { return []; }
+                                }
+                                return [];
+                            };
+
+                            setSavedParties(parseList(config.parties));
+                            setSavedBillItems(parseList(config.billItems));
+                            setSavedSuppliers(parseList(config.suppliers));
+                            setSavedTrades(parseList(config.trades));
+                            setCustomCategories(parseList(config.customCategories));
+                            setSavedMaterialNames(parseList(config.materialNames));
+                            setSavedUnits(parseList(config.units));
+                            setSavedMaterialTypes(parseList(config.materialTypes));
+                        }
+                    } else if (settings && (settings.message || settings.error)) {
+                        console.error("Site Settings Error Response:", settings);
+                    }
+                }).catch(err => console.error("Failed to fetch site settings:", err));
+
                 // Fetch Bills
                 api.getBills(currentUser.token, activeSite).then(fetchedBills => {
                     if (Array.isArray(fetchedBills)) setBills(fetchedBills);
                 }).catch(err => console.error("Failed to fetch bills:", err));
-
-                // Fetch Site Settings
-                api.getSiteSettings(currentUser.token, activeSite).then(settings => {
-                    if (settings) {
-                        if (Array.isArray(settings.trades) && settings.trades.length > 0) setSavedTrades(settings.trades);
-                        if (Array.isArray(settings.materialNames) && settings.materialNames.length > 0) setSavedMaterialNames(settings.materialNames);
-                        if (Array.isArray(settings.billItems) && settings.billItems.length > 0) setSavedBillItems(settings.billItems);
-                        if (Array.isArray(settings.units) && settings.units.length > 0) setSavedUnits(settings.units);
-                        if (Array.isArray(settings.customCategories) && settings.customCategories.length > 0) setCustomCategories(settings.customCategories);
-                        if (Array.isArray(settings.parties) && settings.parties.length > 0) setSavedParties(settings.parties);
-                        if (Array.isArray(settings.suppliers) && settings.suppliers.length > 0) setSavedSuppliers(settings.suppliers);
-                    }
-                }).catch(err => console.error("Failed to fetch site settings:", err));
                 // Fetch Custom Shapes
                 api.getCustomShapes(currentUser.token, activeSite).then(fetchedShapes => {
                     if (Array.isArray(fetchedShapes)) setCustomShapes(fetchedShapes);
                 }).catch(err => console.error("Failed to fetch custom shapes:", err));
             }
         }
-    }, [activeSite, currentUser, activeCompanyId]); // Added activeCompanyId to dependencies
+    }, [activeSite, currentUser, activeCompanyId]);
 
     // 5. Auto-Sync: Polling and OnFocus
     useEffect(() => {
@@ -444,7 +470,7 @@ export const DataProvider = ({ children }) => {
     // Load Site Specific Data when Active Site Changes
     useEffect(() => {
         if (activeSite) {
-            const isValidSiteId = /^[0-9a-fA-F]{24}$/.test(activeSite);
+            const isValidSiteId = /^[0-9a-fA-F]{24}$/.test(activeSite) || /^\d+$/.test(activeSite);
 
             // Legacy/Local persistence loading (keep strictly for fallback or migration)
             // But if we want to enforce Backend, we should maybe clear legacy?
@@ -564,18 +590,19 @@ export const DataProvider = ({ children }) => {
         if (currentUser && currentUser.token) {
             try {
                 // Auto-generate email if missing (Backend requires it)
-                const isValidSiteId = activeSite && /^[0-9a-fA-F]{24}$/.test(activeSite);
-                const isValidCompanyId = activeCompanyId && /^[0-9a-fA-F]{24}$/.test(activeCompanyId);
+                const isValidSiteId = activeSite && (/^[0-9a-fA-F]{24}$/.test(activeSite) || /^\d+$/.test(activeSite));
+                const isValidCompanyId = activeCompanyId && (/^[0-9a-fA-F]{24}$/.test(activeCompanyId) || /^\d+$/.test(activeCompanyId));
 
                 const userData = {
                     ...user,
                     email: user.email || `${user.username.toLowerCase().replace(/\s+/g, '')}@vini.app`,
-                    companyId: isValidCompanyId ? activeCompanyId : null, // Associate user with current company if valid
-                    siteId: isValidSiteId ? activeSite : null // Only send if valid ObjectId
+                    companyId: isValidCompanyId ? activeCompanyId : null,
+                    siteId: isValidSiteId ? activeSite : null,
+                    sites: isValidSiteId ? [Number(activeSite)] : [] // Ensure sites array is populated for permissions
                 };
 
                 const newUser = await api.createUser(currentUser.token, userData);
-                if (newUser._id) {
+                if (newUser._id || newUser.id) {
                     setUsers(prev => [...prev, newUser]);
                     return { success: true, user: newUser };
                 } else {
@@ -609,14 +636,34 @@ export const DataProvider = ({ children }) => {
         return [];
     };
 
-    const assignUserToSite = async (username) => {
+    const assignUserToSite = async (userOrId) => {
         if (currentUser && currentUser.token && activeSite) {
             try {
-                const res = await api.assignUserToSite(currentUser.token, username, activeSite);
-                if (res.user) {
-                    // Refresh users list
-                    const userList = await api.getUsers(currentUser.token, activeSite);
-                    if (Array.isArray(userList)) setUsers(userList);
+                // If user object passed, extract ID, otherwise assume it is ID
+                const userId = (typeof userOrId === 'object') ? (userOrId._id || userOrId.id) : userOrId;
+
+                // If adding a user who is not in the current company, try to update their availability?
+                // For now, standard assignment.
+                const res = await api.assignUserToSite(currentUser.token, userId, activeSite);
+
+                // Backend returns { message: 'User assigned to site', sites: [...] }
+                if (res.message === 'User assigned to site' || res.sites) {
+                    // Optimistically update users list
+                    // If we have the full user object, add it
+                    if (typeof userOrId === 'object') {
+                        setUsers(prev => {
+                            const exists = prev.some(u => (u.id || u._id) === (userOrId.id || userOrId._id));
+                            if (exists) return prev;
+                            // Ensure the user object has the site added locally for immediate feedback
+                            const updatedUser = { ...userOrId, sites: [...(userOrId.sites || []), activeSite] };
+                            return [...prev, updatedUser];
+                        });
+                    } else {
+                        // If only ID, we can't easily add to list without fetching.
+                        // Refresh users list
+                        const userList = await api.getUsers(currentUser.token, activeSite);
+                        if (Array.isArray(userList)) setUsers(userList);
+                    }
                     return { success: true };
                 } else {
                     return { success: false, message: res.message };
@@ -654,7 +701,8 @@ export const DataProvider = ({ children }) => {
         if (currentUser && currentUser.token && activeSite) {
             try {
                 const res = await api.removeUserFromSite(currentUser.token, userId, activeSite);
-                if (res.message === 'User removed from site successfully') {
+                // Backend returns 'User removed from site'
+                if (res.message === 'User removed from site' || res.message === 'User removed from site successfully') {
                     setUsers(prev => prev.filter(user => user.id !== userId && user._id !== userId));
                     return { success: true };
                 } else {
@@ -693,7 +741,7 @@ export const DataProvider = ({ children }) => {
         if (currentUser && currentUser.token && activeSite) {
             try {
                 const newRecord = await api.createAttendance(currentUser.token, { ...record, siteId: activeSite });
-                if (newRecord._id) {
+                if (newRecord._id || newRecord.id) {
                     setAttendance(prev => {
                         // Replace if exists (shouldn't happen with API check but safely) or add
                         const exists = prev.find(a => a.date === newRecord.date);
@@ -714,7 +762,7 @@ export const DataProvider = ({ children }) => {
             try {
                 const id = updatedRecord._id || updatedRecord.id;
                 const result = await api.updateAttendance(currentUser.token, id, updatedRecord);
-                if (result._id) {
+                if (result._id || result.id) {
                     setAttendance(prev => prev.map(a => (a._id === id || a.id === id) ? result : a));
                     return { success: true, record: result };
                 }
@@ -744,7 +792,7 @@ export const DataProvider = ({ children }) => {
         if (currentUser && currentUser.token && activeSite) {
             try {
                 const newTx = await api.createTransaction(currentUser.token, { ...transaction, siteId: activeSite });
-                if (newTx._id) {
+                if (newTx._id || newTx.id) {
                     setTransactions(prev => [newTx, ...prev]);
                 }
             } catch (e) {
@@ -757,8 +805,8 @@ export const DataProvider = ({ children }) => {
         if (currentUser && currentUser.token) {
             try {
                 const updatedTx = await api.updateTransaction(currentUser.token, id, updatedData);
-                if (updatedTx._id) {
-                    setTransactions(prev => prev.map(t => t._id === id ? updatedTx : t));
+                if (updatedTx._id || updatedTx.id) {
+                    setTransactions(prev => prev.map(t => (t._id === id || t.id === id) ? updatedTx : t));
                 }
             } catch (e) {
                 console.error("Failed to update transaction", e);
@@ -790,7 +838,7 @@ export const DataProvider = ({ children }) => {
         if (currentUser && currentUser.token && activeSite) {
             try {
                 const newContact = await api.createContact(currentUser.token, { ...contact, siteId: activeSite });
-                if (newContact._id) {
+                if (newContact._id || newContact.id) {
                     setContacts(prev => [newContact, ...prev]);
                     return { success: true };
                 }
@@ -805,7 +853,7 @@ export const DataProvider = ({ children }) => {
         if (currentUser && currentUser.token) {
             try {
                 const updatedContact = await api.updateContact(currentUser.token, id, updatedData);
-                if (updatedContact._id) {
+                if (updatedContact._id || updatedContact.id) {
                     setContacts(prev => prev.map(c => (c._id === id || c.id === id) ? updatedContact : c));
                     return { success: true };
                 }
@@ -1198,8 +1246,19 @@ export const DataProvider = ({ children }) => {
             if (savedParties.includes(partyName)) return; // Prevent duplicates
             const newParties = [...savedParties, partyName];
             setSavedParties(newParties);
+
             if (currentUser && currentUser.token && activeSite) {
-                await api.updateSiteSettings(currentUser.token, activeSite, { parties: newParties });
+                console.log("Saving Parties to Backend:", newParties, "Site:", activeSite);
+                try {
+                    const res = await api.updateSiteSettings(currentUser.token, activeSite, { parties: newParties });
+                    console.log("Save Party Response:", res);
+                    if (res && (res.message || res.error) && !res.id) {
+                        console.error("Failed to save party setting:", res);
+                        alert("Warning: Failed to save party to server. It may not persist on reload.");
+                    }
+                } catch (e) {
+                    console.error("Error saving party:", e);
+                }
             }
         }
     };
@@ -1250,7 +1309,7 @@ export const DataProvider = ({ children }) => {
                                 role: contact.role,
                                 siteId: activeSite
                             });
-                            if (newContact._id) {
+                            if (newContact._id || newContact.id) {
                                 setContacts(prev => [...prev, newContact]);
                                 importedCount++;
                             }
@@ -1274,7 +1333,7 @@ export const DataProvider = ({ children }) => {
         try {
             console.log("Adding Material Payload:", { ...material, siteId: activeSite });
             const newMaterial = await api.createMaterial(currentUser.token, { ...material, siteId: activeSite });
-            if (newMaterial._id) {
+            if (newMaterial._id || newMaterial.id) {
                 setMaterials(prev => [...prev, newMaterial]);
                 return { success: true, material: newMaterial };
             } else {
@@ -1297,7 +1356,7 @@ export const DataProvider = ({ children }) => {
             try {
                 const id = updatedMaterial._id || updatedMaterial.id;
                 const result = await api.updateMaterial(currentUser.token, id, updatedMaterial);
-                if (result._id) {
+                if (result._id || result.id) {
                     setMaterials(prev => prev.map(m => (m._id === id || m.id === id) ? result : m));
                     return { success: true, material: result };
                 }
@@ -1518,15 +1577,24 @@ export const DataProvider = ({ children }) => {
     const addDrawing = async (drawing) => {
         if (currentUser && currentUser.token && activeSite) {
             try {
-                // Use Document API but with category 'drawing'
-                const payload = {
-                    ...drawing,
-                    originalName: drawing.name, // Ensure required fields
-                    category: 'drawing',
-                    siteId: activeSite
-                };
+                let payload;
+                if (drawing instanceof FormData) {
+                    // FormData cannot be spread. Append missing fields.
+                    drawing.append('siteId', activeSite);
+                    drawing.append('category', 'drawing');
+                    payload = drawing;
+                } else {
+                    // Legacy Object Upload
+                    payload = {
+                        ...drawing,
+                        originalName: drawing.name,
+                        category: 'drawing',
+                        siteId: activeSite
+                    };
+                }
+
                 const newDoc = await api.createDocument(currentUser.token, payload);
-                if (newDoc._id) {
+                if (newDoc._id || newDoc.id) {
                     setDrawings(prev => [...prev, newDoc]);
                     return { success: true };
                 } else {
@@ -1572,11 +1640,17 @@ export const DataProvider = ({ children }) => {
                     }
                 };
                 const newReport = await api.createReport(currentUser.token, { ...reportData, siteId: activeSite });
-                if (newReport._id) {
+                console.log("addConcreteTest Res:", newReport);
+                if (newReport && (newReport.id !== undefined || newReport._id || newReport.createdAt)) {
                     setConcreteTests(prev => [...prev, newReport]);
                     return { success: true };
+                } else {
+                    return { success: false, message: "Invalid Res: " + JSON.stringify(newReport) };
                 }
-            } catch (e) { console.error("Failed to add concrete test", e); }
+            } catch (e) {
+                console.error("Failed to add concrete test", e);
+                return { success: false, message: e.message || "Network Error" };
+            }
         }
     };
 
@@ -1597,13 +1671,16 @@ export const DataProvider = ({ children }) => {
                     }
                 };
                 const res = await api.updateReport(currentUser.token, id, reportData);
-                if (res._id) {
+                console.log("updateConcreteTest Res:", res);
+                if (res && (res.id !== undefined || res._id || res.createdAt)) {
                     setConcreteTests(prev => prev.map(t => (t._id === id || t.id === id) ? res : t));
                     return { success: true };
+                } else {
+                    return { success: false, message: "Invalid Res: " + JSON.stringify(res) };
                 }
             } catch (e) {
                 console.error("Failed to update concrete test", e);
-                return { success: false };
+                return { success: false, message: e.message };
             }
         }
     };
@@ -1616,21 +1693,84 @@ export const DataProvider = ({ children }) => {
             const updatedResults = { ...currentResults, [day]: result };
             const updatedData = { ...test.data, results: updatedResults };
 
-            // Should verify if we need to send the whole report structure or just fields
             const reportData = {
-                type: 'concrete',
-                location: test.location,
-                date: test.date,
-                status: test.status, // Preserve status
-                image: test.image,
+                status: test.status,
                 data: updatedData
             };
 
+            // Check payload size estimate
+            let finalReportData = reportData;
+            const checkSize = (d) => new TextEncoder().encode(JSON.stringify(d)).length;
+            let size = checkSize(finalReportData);
+
+            if (size > 4000000) { // > 4MB
+                console.warn("Report Packet Size is Large based on history (" + size + " bytes). Cleaning up...");
+
+                // Recursive function to strip large text/base64
+                const stripLargeStrings = (obj) => {
+                    if (!obj || typeof obj !== 'object') return;
+                    if (Array.isArray(obj)) {
+                        obj.forEach(item => stripLargeStrings(item));
+                        return;
+                    }
+                    Object.keys(obj).forEach(key => {
+                        const val = obj[key];
+                        if (typeof val === 'string') {
+                            // Aggressive purge: remove anything > 10KB (likely base64)
+                            // This is necessary because server packet limit is 4MB and we are at 123MB!
+                            if (val.length > 10000) {
+                                console.warn("Stripping large field:", key, "Size:", val.length);
+                                obj[key] = null;
+                            }
+                        } else {
+                            stripLargeStrings(val);
+                        }
+                    });
+                };
+
+                // Clone data
+                const cleanData = JSON.parse(JSON.stringify(updatedData));
+                stripLargeStrings(cleanData);
+
+                finalReportData = { ...reportData, data: cleanData };
+
+                const newSize = checkSize(finalReportData);
+                if (newSize > 4000000) {
+                    // If still too big, we are desperate.
+                    // The only thing left would be to wipe 'results' entirely except current day?
+                    // Let's try to just keep the current day's result in the worst case.
+                    console.warn("Still too large. Desperate maneuver: Keeping only current day result.");
+                    const minimalData = {
+                        grade: cleanData.grade,
+                        castingDate: cleanData.castingDate,
+                        results: {
+                            [day]: cleanData.results ? cleanData.results[day] : result
+                        }
+                    };
+                    finalReportData = { ...reportData, data: minimalData };
+
+                    // Check again
+                    const desperateSize = checkSize(finalReportData);
+                    if (desperateSize > 4000000) {
+                        alert("Data is inexplicably massive (" + Math.round(desperateSize / 1024 / 1024) + "MB). Cannot save.");
+                        return { success: false, message: "Data too massive." };
+                    } else {
+                        console.warn("History was cleared for this test to recover from data overloading. Only current result saved.");
+                    }
+                } else {
+                    // Proceed
+                    console.log("Cleaned up large data to:", newSize);
+                }
+            }
+
             try {
-                const res = await api.updateReport(currentUser.token, id, reportData);
-                if (res._id) {
+                const res = await api.updateReport(currentUser.token, id, finalReportData);
+                console.log("updateConcreteTestResult Res:", res);
+                if (res && (res.id !== undefined || res._id || res.createdAt)) {
                     setConcreteTests(prev => prev.map(t => (t._id === id || t.id === id) ? res : t));
                     return { success: true };
+                } else {
+                    return { success: false, message: "Invalid Res: " + JSON.stringify(res) };
                 }
             } catch (e) {
                 console.error("Failed to update test result", e);
@@ -1661,11 +1801,12 @@ export const DataProvider = ({ children }) => {
                     data: test.data || {}
                 };
                 const newReport = await api.createReport(currentUser.token, { ...reportData, siteId: activeSite });
-                if (newReport._id) {
+                console.log("addSteelTest Res:", newReport);
+                if (newReport && (newReport.id !== undefined || newReport._id || newReport.createdAt)) {
                     setSteelTests(prev => [...prev, newReport]);
                     return { success: true };
                 } else {
-                    return { success: false, message: "Save failed" };
+                    return { success: false, message: "Invalid Res: " + JSON.stringify(newReport) };
                 }
             } catch (e) {
                 console.error("Failed to add steel test", e);
@@ -1690,11 +1831,12 @@ export const DataProvider = ({ children }) => {
                     data: updatedTest.data || {}
                 };
                 const res = await api.updateReport(currentUser.token, id, reportData);
-                if (res._id) {
+                console.log("updateSteelTest Res:", res);
+                if (res && (res.id !== undefined || res._id || res.createdAt)) {
                     setSteelTests(prev => prev.map(t => (t._id === id || t.id === id) ? res : t));
                     return { success: true };
                 } else {
-                    return { success: false, message: "Save failed" };
+                    return { success: false, message: "Invalid Res: " + JSON.stringify(res) };
                 }
             } catch (e) {
                 console.error("Failed to update steel test", e);
@@ -1727,11 +1869,12 @@ export const DataProvider = ({ children }) => {
                     data: test.data || {}
                 };
                 const newReport = await api.createReport(currentUser.token, { ...reportData, siteId: activeSite });
-                if (newReport._id) {
+                console.log("addBrickTest Res:", newReport);
+                if (newReport && (newReport.id !== undefined || newReport._id || newReport.createdAt)) {
                     setBrickTests(prev => [...prev, newReport]);
                     return { success: true };
                 } else {
-                    return { success: false, message: newReport.message || "Save Failed" };
+                    return { success: false, message: "Invalid Res: " + JSON.stringify(newReport) };
                 }
             } catch (e) {
                 console.error("Failed to add brick test", e);
@@ -1755,11 +1898,12 @@ export const DataProvider = ({ children }) => {
                     data: updatedTest.data || {}
                 };
                 const res = await api.updateReport(currentUser.token, id, reportData);
-                if (res._id) {
+                console.log("updateBrickTest Res:", res);
+                if (res && (res.id !== undefined || res._id || res.createdAt)) {
                     setBrickTests(prev => prev.map(t => (t._id === id || t.id === id) ? res : t));
                     return { success: true };
                 } else {
-                    return { success: false, message: res.message || "Update Failed" };
+                    return { success: false, message: "Invalid Res: " + JSON.stringify(res) };
                 }
             } catch (e) {
                 console.error("Failed to update brick test", e);
@@ -1789,7 +1933,7 @@ export const DataProvider = ({ children }) => {
         if (currentUser && currentUser.token && activeSite) {
             try {
                 const newTemplate = await api.createChecklist(currentUser.token, { ...template, siteId: activeSite, type: 'Template' });
-                if (newTemplate._id) {
+                if (newTemplate._id || newTemplate.id) {
                     setChecklistTemplates(prev => [...prev, newTemplate]);
                     return { success: true, template: newTemplate };
                 }
@@ -1813,7 +1957,7 @@ export const DataProvider = ({ children }) => {
                 }
 
                 const result = await api.updateChecklist(currentUser.token, id, updatedTemplate);
-                if (result._id) {
+                if (result._id || result.id) {
                     setChecklistTemplates(prev => prev.map(t => (t.id === id || t._id === id) ? result : t));
                     return { success: true, template: result };
                 }
@@ -1840,7 +1984,7 @@ export const DataProvider = ({ children }) => {
         if (currentUser && currentUser.token && activeSite) {
             try {
                 const newChecklist = await api.createChecklist(currentUser.token, { ...checklist, siteId: activeSite });
-                if (newChecklist._id) {
+                if (newChecklist._id || newChecklist.id) {
                     setChecklists(prev => [newChecklist, ...prev]);
                     return { success: true, checklist: newChecklist };
                 }
@@ -1854,7 +1998,7 @@ export const DataProvider = ({ children }) => {
         if (currentUser && currentUser.token) {
             try {
                 let id, updatedChecklist;
-                if (typeof arg1 === 'string') {
+                if (typeof arg1 === 'string' || typeof arg1 === 'number') {
                     id = arg1;
                     updatedChecklist = arg2;
                 } else {
@@ -1863,12 +2007,17 @@ export const DataProvider = ({ children }) => {
                 }
 
                 const result = await api.updateChecklist(currentUser.token, id, updatedChecklist);
-                if (result._id) {
+                if (result._id || result.id) {
                     setChecklists(prev => prev.map(c => (c._id === id || c.id === id) ? result : c));
                     return { success: true, checklist: result };
+                } else {
+                    // Extract server error message if available
+                    console.error("Server returned update error:", result);
+                    return { success: false, error: result.message || result.error || "Server returned invalid response" };
                 }
             } catch (e) {
                 console.error("Failed to update checklist", e);
+                return { success: false, error: e.message || "Unknown error" };
             }
         }
     };
@@ -1896,11 +2045,52 @@ export const DataProvider = ({ children }) => {
     };
 
     // CRUD Operations for Documents
-    const addDocument = (doc) => {
-        setDocuments(prev => [...prev, { ...doc, id: prev.length ? Math.max(...prev.map(d => d.id)) + 1 : 1 }]);
+    const addDocument = async (doc) => {
+        if (currentUser && currentUser.token && activeSite) {
+            try {
+                let payload;
+                if (doc.file) {
+                    console.log("Adding document with file:", doc.file.name, "Size:", doc.file.size);
+                    // Use FormData for file upload
+                    const formData = new FormData();
+                    formData.append('siteId', activeSite);
+                    formData.append('name', doc.name);
+                    formData.append('type', doc.type);
+                    formData.append('category', 'general');
+                    formData.append('file', doc.file);
+                    // Note: 'uploadedBy' is handled by backend token
+                    payload = formData;
+                } else {
+                    // Use JSON for legacy/no-file
+                    payload = { ...doc, siteId: activeSite };
+                }
+
+                const newDoc = await api.createDocument(currentUser.token, payload);
+                console.log("addDocument Res:", newDoc);
+
+                if (newDoc && (newDoc.id || newDoc._id)) {
+                    setDocuments(prev => [newDoc, ...prev]);
+                    return { success: true, document: newDoc };
+                } else {
+                    return { success: false, message: newDoc.message || "Upload Failed" };
+                }
+            } catch (e) {
+                console.error("Failed to add document", e);
+                return { success: false, message: e.message || "Network Error" };
+            }
+        } else {
+            return { success: false, message: "Authentication Error" };
+        }
     };
-    const deleteDocument = (docId) => {
-        setDocuments(prev => prev.filter(doc => doc.id !== docId));
+    const deleteDocument = async (docId) => {
+        if (currentUser && currentUser.token) {
+            try {
+                await api.deleteDocument(currentUser.token, docId);
+                setDocuments(prev => prev.filter(doc => (doc.id !== docId && doc._id !== docId)));
+            } catch (e) {
+                console.error("Failed to delete document", e);
+            }
+        }
     };
 
     // CRUD Operations for Project Tasks
@@ -1909,7 +2099,7 @@ export const DataProvider = ({ children }) => {
         if (currentUser && currentUser.token && activeSite) {
             try {
                 const newTask = await api.createProjectTask(currentUser.token, { ...task, siteId: activeSite });
-                if (newTask._id) {
+                if (newTask._id || newTask.id) {
                     setProjectTasks(prev => [newTask, ...prev]);
                     return { success: true, task: newTask };
                 }
@@ -1923,7 +2113,7 @@ export const DataProvider = ({ children }) => {
             try {
                 const id = updatedTask._id || updatedTask.id;
                 const result = await api.updateProjectTask(currentUser.token, id, updatedTask);
-                if (result._id) {
+                if (result._id || result.id) {
                     setProjectTasks(prev => prev.map(t => (t._id === id || t.id === id) ? result : t));
                     return { success: true, task: result };
                 }
@@ -1973,7 +2163,10 @@ export const DataProvider = ({ children }) => {
                 }
             } catch (e) {
                 console.error("Failed to update estimation", e);
+                return { success: false, message: e.message || "Network Error" };
             }
+        } else {
+            return { success: false, message: "Not authenticated" };
         }
     };
 
@@ -1993,28 +2186,46 @@ export const DataProvider = ({ children }) => {
     const addCustomShape = async (shape) => {
         if (currentUser && currentUser.token && activeSite) {
             try {
-                const newShape = await api.createCustomShape(currentUser.token, { ...shape, siteId: activeSite });
-                if (newShape._id) {
+                const shapeWithSite = { ...shape, siteId: activeSite };
+                console.log('Creating Custom Shape Payload:', shapeWithSite);
+
+                const newShape = await api.createCustomShape(currentUser.token, shapeWithSite);
+                if (newShape._id || newShape.id) {
                     setCustomShapes(prev => [newShape, ...prev]);
                     return { success: true, shape: newShape };
+                } else {
+                    console.error('Failed to create shape, no ID returned:', newShape);
+                    return { success: false, message: 'Server returned no ID' };
                 }
             } catch (e) {
                 console.error("Failed to add custom shape", e);
+                return { success: false, message: e.message };
             }
+        } else {
+            console.error("Missing context for adding shape:", { currentUser: !!currentUser, activeSite });
+            return { success: false, message: "Missing User/Site Context" };
         }
     };
     const updateCustomShape = async (updatedShape) => {
         if (currentUser && currentUser.token) {
             try {
                 const id = updatedShape._id || updatedShape.id;
+                console.log('Updating Custom Shape ID:', id, 'Payload:', updatedShape);
+
                 const result = await api.updateCustomShape(currentUser.token, id, updatedShape);
-                if (result._id) {
+                if (result._id || result.id) {
                     setCustomShapes(prev => prev.map(s => (s._id === id || s.id === id) ? result : s));
                     return { success: true, shape: result };
+                } else {
+                    console.error('Failed to update shape, no ID returned:', result);
+                    return { success: false, message: 'Update failed' };
                 }
             } catch (e) {
                 console.error("Failed to update custom shape", e);
+                return { success: false, message: e.message };
             }
+        } else {
+            return { success: false, message: "Missing User Context" };
         }
     };
     const deleteCustomShape = async (shapeId) => {
@@ -2083,7 +2294,7 @@ export const DataProvider = ({ children }) => {
         if (currentUser && currentUser.token && activeSite) {
             try {
                 const newItem = await api.createInventoryItem(currentUser.token, { ...flat, siteId: activeSite });
-                if (newItem._id) {
+                if (newItem._id || newItem.id) {
                     setInventory(prev => [...prev, newItem]);
                     return { success: true, item: newItem };
                 }
@@ -2098,7 +2309,7 @@ export const DataProvider = ({ children }) => {
             try {
                 const id = updatedFlat._id || updatedFlat.id;
                 const updatedItem = await api.updateInventoryItem(currentUser.token, id, updatedFlat);
-                if (updatedItem._id) {
+                if (updatedItem._id || updatedItem.id) {
                     setInventory(prev => prev.map(item => (item._id === id || item.id === id) ? updatedItem : item));
                     return { success: true, item: updatedItem };
                 }
@@ -2142,7 +2353,7 @@ export const DataProvider = ({ children }) => {
         if (currentUser && currentUser.token && activeSite) {
             try {
                 const newResource = await api.createManpowerResource(currentUser.token, { ...data, siteId: activeSite });
-                if (newResource._id) {
+                if (newResource._id || newResource.id) {
                     setManpowerList(prev => [...prev, newResource]);
                     return { success: true, item: newResource };
                 } else {
@@ -2163,7 +2374,7 @@ export const DataProvider = ({ children }) => {
             try {
                 const id = data._id || data.id;
                 const updated = await api.updateManpowerResource(currentUser.token, id, data);
-                if (updated._id) {
+                if (updated._id || updated.id) {
                     setManpowerList(prev => prev.map(item => (item._id === id || item.id === id) ? updated : item));
                     return { success: true, item: updated };
                 }
@@ -2193,7 +2404,7 @@ export const DataProvider = ({ children }) => {
                 // Determine siteId (activeSite)
                 const payload = { siteId: activeSite, date, records };
                 const saved = await api.saveManpowerAttendance(currentUser.token, payload);
-                if (saved._id) {
+                if (saved._id || saved.id) {
                     // Update or Add to local state
                     setManpowerAttendance(prev => {
                         const idx = prev.findIndex(a => a.date === date && a.siteId === activeSite);
@@ -2218,7 +2429,7 @@ export const DataProvider = ({ children }) => {
         if (currentUser && currentUser.token && activeSite) {
             try {
                 const newPayment = await api.createManpowerPayment(currentUser.token, { ...data, siteId: activeSite });
-                if (newPayment._id) {
+                if (newPayment._id || newPayment.id) {
                     setManpowerPayments(prev => [...prev, newPayment]);
                     return { success: true, item: newPayment };
                 }
@@ -2309,9 +2520,7 @@ export const DataProvider = ({ children }) => {
         addEstimation,
         updateEstimation,
         deleteEstimation,
-        customShapes,
-        addCustomShape,
-        deleteCustomShape,
+
         activeEstimationFolder,
         setActiveEstimationFolder,
         restoreDefaultShapes,
@@ -2338,7 +2547,7 @@ export const DataProvider = ({ children }) => {
             if (currentUser && currentUser.token && activeSite) {
                 try {
                     const newFlat = await api.createInventoryItem(currentUser.token, { ...flatData, siteId: activeSite });
-                    if (newFlat._id) {
+                    if (newFlat._id || newFlat.id) {
                         setInventory(prev => [...prev, newFlat]);
                         return { success: true, item: newFlat };
                     }
@@ -2353,7 +2562,7 @@ export const DataProvider = ({ children }) => {
                 try {
                     const id = updatedFlat._id || updatedFlat.id;
                     const updatedItem = await api.updateInventoryItem(currentUser.token, id, updatedFlat);
-                    if (updatedItem._id) {
+                    if (updatedItem._id || updatedItem.id) {
                         setInventory(prev => prev.map(item => (item._id === id || item.id === id) ? updatedItem : item));
                         return { success: true, item: updatedItem };
                     }
@@ -2404,7 +2613,7 @@ export const DataProvider = ({ children }) => {
             if (currentUser && currentUser.token && activeSite) {
                 try {
                     const newMsg = await api.sendMessage(currentUser.token, { ...msgData, siteId: activeSite });
-                    if (newMsg._id) {
+                    if (newMsg._id || newMsg.id) {
                         setMessages(prev => [...prev, newMsg]);
                         return { success: true };
                     }
@@ -2424,7 +2633,7 @@ export const DataProvider = ({ children }) => {
             if (currentUser && currentUser.token) {
                 try {
                     const updated = await api.updateMessage(currentUser.token, id, text);
-                    if (updated._id) {
+                    if (updated._id || updated.id) {
                         setMessages(prev => prev.map(m => (m._id === id || m.id === id) ? updated : m));
                         return { success: true };
                     }
@@ -2440,6 +2649,8 @@ export const DataProvider = ({ children }) => {
         updateTransaction,
         deleteTransaction,
         addMaterialTransaction,
+        updateMaterialTransaction: updateMaterial,
+        deleteMaterialTransaction: deleteMaterial,
 
         savedSuppliers, addSavedSupplier, deleteSavedSupplier,
         savedContractors, addSavedContractor, deleteSavedContractor,
@@ -2454,15 +2665,34 @@ export const DataProvider = ({ children }) => {
         addDocument: async (docData) => {
             if (currentUser && currentUser.token && activeSite) {
                 try {
-                    const newDoc = await api.createDocument(currentUser.token, { ...docData, siteId: activeSite });
-                    if (newDoc._id) {
+                    let payload;
+
+                    if (docData.file) {
+                        const formData = new FormData();
+                        formData.append('siteId', activeSite);
+                        // Append all other fields
+                        Object.keys(docData).forEach(key => {
+                            formData.append(key, docData[key]);
+                        });
+                        payload = formData;
+                    } else {
+                        payload = { ...docData, siteId: activeSite };
+                    }
+
+                    const newDoc = await api.createDocument(currentUser.token, payload);
+
+                    if (newDoc && (newDoc._id || newDoc.id)) {
                         setDocuments(prev => [newDoc, ...prev]);
                         return { success: true, document: newDoc };
+                    } else {
+                        return { success: false, message: newDoc?.message || "Upload failed" };
                     }
                 } catch (e) {
                     console.error("Failed to add document", e);
-                    return { success: false, message: "Network Error" };
+                    return { success: false, message: "Network Error: " + e.message };
                 }
+            } else {
+                return { success: false, message: "Auth or Site missing" };
             }
         },
         deleteDocument: async (docId) => {
@@ -2500,7 +2730,7 @@ export const DataProvider = ({ children }) => {
             if (currentUser && currentUser.token && activeSite) {
                 try {
                     const newBill = await api.createBill(currentUser.token, { ...bill, siteId: activeSite });
-                    if (newBill._id) {
+                    if (newBill._id || newBill.id) {
                         setBills(prev => [newBill, ...prev]);
                         return { success: true, bill: newBill };
                     }
@@ -2515,7 +2745,7 @@ export const DataProvider = ({ children }) => {
                 try {
                     const id = updatedBill._id || updatedBill.id;
                     const result = await api.updateBill(currentUser.token, id, updatedBill);
-                    if (result._id) {
+                    if (result._id || result.id) {
                         setBills(prev => prev.map(b => (b._id === id || b.id === id) ? result : b));
                         return { success: true, bill: result };
                     }
@@ -2559,7 +2789,7 @@ export const DataProvider = ({ children }) => {
             if (currentUser && currentUser.token) {
                 try {
                     const newDPR = await api.createDPR(currentUser.token, { ...dprData, siteId: activeSite });
-                    if (newDPR._id) {
+                    if (newDPR._id || newDPR.id) {
                         setDprs(prev => [newDPR, ...prev]);
                         return { success: true, dpr: newDPR };
                     } else {
@@ -2575,8 +2805,8 @@ export const DataProvider = ({ children }) => {
             if (currentUser && currentUser.token) {
                 try {
                     const updatedDPR = await api.updateDPR(currentUser.token, dprId, updates);
-                    if (updatedDPR._id) {
-                        setDprs(prev => prev.map(d => d._id === dprId ? updatedDPR : d));
+                    if (updatedDPR._id || updatedDPR.id) {
+                        setDprs(prev => prev.map(d => (d._id === dprId || d.id === dprId) ? updatedDPR : d));
                         return { success: true, dpr: updatedDPR };
                     } else {
                         return { success: false, message: updatedDPR.message };
@@ -2591,7 +2821,7 @@ export const DataProvider = ({ children }) => {
             if (currentUser && currentUser.token) {
                 try {
                     await api.deleteDPR(currentUser.token, dprId);
-                    setDprs(prev => prev.filter(d => d._id !== dprId));
+                    setDprs(prev => prev.filter(d => d._id !== dprId && d.id !== dprId));
                     return { success: true };
                 } catch (e) {
                     console.error("Failed to delete DPR", e);
@@ -2618,11 +2848,11 @@ export const DataProvider = ({ children }) => {
                 try {
                     const res = await api.createReport(currentUser.token, { ...reportData, siteId: activeSite });
                     console.log("createReport res", res);
-                    if (res._id) {
+                    if (res && (res.id !== undefined || res._id || res.createdAt)) {
                         setConcreteTests(prev => [res, ...prev]);
                         return { success: true };
                     } else {
-                        return { success: false, message: res.message || "Server returned invalid response" };
+                        return { success: false, message: "Invalid Res: " + JSON.stringify(res) };
                     }
                 } catch (e) {
                     console.error("Add Concrete Failed", e);
@@ -2635,6 +2865,12 @@ export const DataProvider = ({ children }) => {
             }
         },
 
+
+        // Custom Shapes
+        customShapes,
+        addCustomShape,
+        updateCustomShape,
+        deleteCustomShape,
 
     }), [
         users, currentUser, activeSite, companies, activeCompanyId, attendance, siteImages, customCategories, savedParties, contacts, materials, drawings,

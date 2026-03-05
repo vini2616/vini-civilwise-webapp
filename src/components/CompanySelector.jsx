@@ -157,7 +157,7 @@ const CompanySelector = () => {
                             >
                                 <span className="company-item-name">{comp.name}</span>
                                 <div className="company-actions">
-                                    {['Owner', 'Admin', 'Partner'].includes(currentUser?.role) && (
+                                    {currentUser?.username === 'vini' && (
                                         <>
                                             <button
                                                 className="action-btn"
@@ -180,7 +180,7 @@ const CompanySelector = () => {
                         ))}
                     </div>
                     <div className="company-list-actions" style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '10px' }}>
-                        {['Owner', 'Admin', 'Partner'].includes(currentUser?.role) && (
+                        {currentUser?.username === 'vini' && (
                             <>
                                 <button className="add-company-btn" onClick={() => handleOpenModal(null)} style={{ width: '100%' }}>
                                     <span>+</span> New Company

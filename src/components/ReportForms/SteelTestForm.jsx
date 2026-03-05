@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { useData } from '../../context/DataContext';
+import { checkPermission } from '../../utils/permissions';
 
 const SteelTestForm = ({ onBack, initialData }) => {
-    const { addSteelTest, updateSteelTest } = useData();
+    const { addSteelTest, updateSteelTest, currentUser } = useData();
+    const permission = checkPermission(currentUser, 'report');
     const [formData, setFormData] = useState({
         location: '',
         supplier: '',
@@ -23,17 +25,23 @@ const SteelTestForm = ({ onBack, initialData }) => {
     // Load initial data if editing
     React.useEffect(() => {
         if (initialData) {
+            let safeData = initialData.data || {};
+            // Fix: Parse if string to avoid blank fields on reload
+            if (typeof safeData === 'string') {
+                try { safeData = JSON.parse(safeData); } catch (e) { safeData = {}; }
+            }
+
             setFormData({
                 ...initialData,
                 testDate: initialData.date ? new Date(initialData.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
                 // Map top-level or data-level fields correctly
                 location: initialData.location || '',
-                diameter: initialData.data?.diameter || initialData.diameter || '',
-                grade: initialData.data?.grade || initialData.grade || 'Fe500',
-                supplier: initialData.data?.supplier || initialData.supplier || '',
-                batchNumber: initialData.data?.batchNumber || initialData.batchNumber || '',
+                diameter: safeData.diameter || initialData.diameter || '',
+                grade: safeData.grade || initialData.grade || 'Fe500',
+                supplier: safeData.supplier || initialData.supplier || '',
+                batchNumber: safeData.batchNumber || initialData.batchNumber || '',
                 image: initialData.image || null,
-                results: initialData.data?.results || {
+                results: safeData.results || {
                     yieldStrength: '',
                     ultimateStrength: '',
                     elongation: '',
@@ -70,7 +78,16 @@ const SteelTestForm = ({ onBack, initialData }) => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        // Debug confirmation
+        // Permission Check for Data Entry - Block if result already submitted/passed
+        if (permission === 'data_entry' && initialData) {
+            const isDone = formData.results.yieldStrength || formData.status === 'Pass' || formData.status === 'Fail';
+            // If already has status or result, block editing
+            if (initialData.status === 'Pass' || initialData.status === 'Fail' || (initialData.status === 'Tested')) {
+                alert("Data Entry users cannot edit submitted test reports.");
+                return;
+            }
+        }
+
         console.log("Submitting form...");
 
         // Validation commented out to debug user issue

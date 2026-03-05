@@ -24,20 +24,23 @@ const calculateCuttingLength = (shapeId, dims, dia, customBends = 0, customShape
             let totalDeduction = 0;
 
             // Iterate over defined segments
-            customShapeDef.segments.forEach(seg => {
-                const label = seg.label;
-                // Get user input length for this segment (default to 0)
-                const inputLen = parseFloat(dims[label]) || 0;
-                const multiplier = parseFloat(dims[`${label}_mult`]) || seg.multiplier || 1;
+            if (Array.isArray(customShapeDef.segments)) {
+                customShapeDef.segments.forEach(seg => {
+                    const label = seg.label;
+                    // Get user input length for this segment (default to 0)
+                    const inputLen = parseFloat(dims[label]) || 0;
+                    const multiplier = parseFloat(dims[`${label}_mult`]) || parseFloat(seg.multiplier) || 1;
 
-                totalLength += inputLen * multiplier;
-            });
+                    totalLength += inputLen * multiplier;
+                });
+            }
 
             // Calculate Deductions from separated object
-            if (customShapeDef.deductions) {
-                Object.entries(customShapeDef.deductions).forEach(([angle, count]) => {
-                    const ang = parseFloat(angle);
-                    const cnt = parseFloat(count);
+            const safeDeductions = customShapeDef.deductions || {};
+            if (typeof safeDeductions === 'object') {
+                Object.entries(safeDeductions).forEach(([angle, count]) => {
+                    const ang = parseFloat(angle) || 0;
+                    const cnt = parseFloat(count) || 0;
                     let k = 0;
                     if (ang === 45) k = 1;
                     else if (ang === 90) k = 2;
@@ -46,11 +49,11 @@ const calculateCuttingLength = (shapeId, dims, dia, customBends = 0, customShape
 
                     totalDeduction += (k * d * cnt);
                 });
-            } else if (customShapeDef.bends && customShapeDef.bends.length > 0) {
+            } else if (customShapeDef.bends && Array.isArray(customShapeDef.bends)) {
                 // Legacy support
                 customShapeDef.bends.forEach(bend => {
-                    const angle = parseFloat(bend.angle);
-                    const count = parseFloat(bend.count);
+                    const angle = parseFloat(bend.angle) || 0;
+                    const count = parseFloat(bend.count) || 0;
                     let k = 0;
                     if (angle === 45) k = 1;
                     else if (angle === 90) k = 2;
@@ -86,10 +89,10 @@ const calculateCuttingLength = (shapeId, dims, dia, customBends = 0, customShape
 
             // Apply Advanced Bend Deductions
             let totalDeduction = 0;
-            if (customShapeDef.bends && customShapeDef.bends.length > 0) {
+            if (customShapeDef.bends && Array.isArray(customShapeDef.bends)) {
                 customShapeDef.bends.forEach(bend => {
-                    const angle = parseFloat(bend.angle);
-                    const count = parseFloat(bend.count);
+                    const angle = parseFloat(bend.angle) || 0;
+                    const count = parseFloat(bend.count) || 0;
                     let k = 0;
                     if (angle === 45) k = 1;
                     else if (angle === 90) k = 2;
@@ -100,7 +103,7 @@ const calculateCuttingLength = (shapeId, dims, dia, customBends = 0, customShape
                 });
             }
 
-            return Math.max(0, length - totalDeduction);
+            return Math.max(0, (parseFloat(length) || 0) - totalDeduction);
 
         } catch (e) {
             console.error("Formula evaluation error", e);
@@ -115,10 +118,10 @@ const calculateCuttingLength = (shapeId, dims, dia, customBends = 0, customShape
 
     if (shapeId === 'CUSTOM') {
         // Handle Ad-hoc custom bends object { 45: count, 90: count... }
-        if (typeof customBends === 'object') {
+        if (typeof customBends === 'object' && customBends !== null) {
             let totalDeduction = 0;
             Object.entries(customBends).forEach(([angle, count]) => {
-                const ang = parseInt(angle);
+                const ang = parseInt(angle) || 0;
                 const cnt = parseInt(count) || 0;
                 let k = 0;
                 if (ang === 45) k = 1;
@@ -130,7 +133,7 @@ const calculateCuttingLength = (shapeId, dims, dia, customBends = 0, customShape
             return Math.max(0, sumDims - totalDeduction);
         } else {
             // Legacy fallback (just count of 90 deg)
-            bends = customBends || 0;
+            bends = parseInt(customBends) || 0;
         }
     } else {
         bends = BAR_SHAPES[shapeId]?.bends || 0;
@@ -138,7 +141,6 @@ const calculateCuttingLength = (shapeId, dims, dia, customBends = 0, customShape
             const A = parseFloat(dims.A) || 0;
             const B = parseFloat(dims.B) || 0;
             return (2 * (A + B)) + (14 * d); // Hook allowance included? Or just perimeter + hooks
-            // Standard stirrup formula usually: 2(A+B) + 2*10d (hooks) - 3*2d (bends) = 2(A+B) + 14d approx
         }
     }
 
@@ -225,7 +227,7 @@ const ShapeVisualizer = ({ shape, dims, customShapeDef }) => {
 
 const OptimizationResults = ({ items, title, onBack, initialScrap = [], onSaveScrap }) => {
     const STOCK_LENGTH = 12; // meters
-    const scrapStock = initialScrap; // Use prop as source of truth
+    const scrapStock = Array.isArray(initialScrap) ? initialScrap : []; // Use prop as source of truth
     const [scrapForm, setScrapForm] = React.useState({ dia: '', length: '', qty: '' });
 
     // Available diameters from items
@@ -583,7 +585,6 @@ const Estimation = ({ onNavigate, pageData, setPageData, currentUser }) => {
     // Permission Check
     const permission = checkPermission(currentUser, 'estimation');
     const canAdd = canEnterData(permission);
-    const canEdit = canEditDelete(permission);
 
     if (permission === 'no_access') {
         return (
@@ -610,6 +611,14 @@ const Estimation = ({ onNavigate, pageData, setPageData, currentUser }) => {
     const [activeEstimation, setActiveEstimation] = useState(null);
     const [showModal, setShowModal] = useState(false);
     const [formData, setFormData] = useState({ title: '', description: '', type: 'steel' });
+
+    const hasGeneralEditPerm = canEditDelete(permission); // General permission check
+    // Check if the current ACTIVE estimation is editable
+    const reportCreatedAt = activeEstimation?.createdAt || activeEstimation?.date;
+    const canEditCurrent = !activeEstimation ? true : canEditDelete(permission, reportCreatedAt);
+
+    // Use canEditCurrent for detail view actions, hasGeneralEditPerm for list view actions (if we want to be strict there too, we'd need per-item checks in the list)
+    const canEdit = hasGeneralEditPerm; // Keep existing variable for general availability check if needed, but rely on canEditCurrent for active doc.
 
     // Concrete Estimation State
     const [concreteForm, setConcreteForm] = useState({
@@ -710,6 +719,15 @@ const Estimation = ({ onNavigate, pageData, setPageData, currentUser }) => {
         beddingThickness: 50, // mm
         ratio: '1:6', // or CHEMICAL
         wastage: 5 // %
+    });
+
+    const [plasterForm, setPlasterForm] = useState({
+        description: '',
+        manualArea: '',
+        wallDims: { l: 0, h: 0 },
+        thickness: 12,
+        ratio: '1:4',
+        deductions: []
     });
 
     const calculateMasonry = (form) => {
@@ -869,7 +887,7 @@ const Estimation = ({ onNavigate, pageData, setPageData, currentUser }) => {
     // Restore state from pageData if available
     useEffect(() => {
         if (pageData && pageData.activeEstimationId && pageData.view === 'detail') {
-            const estimation = estimations.find(e => e.id === pageData.activeEstimationId);
+            const estimation = estimations.find(e => (e._id || e.id) === pageData.activeEstimationId);
             if (estimation) {
                 setActiveEstimation(estimation);
                 setView('detail');
@@ -963,6 +981,14 @@ const Estimation = ({ onNavigate, pageData, setPageData, currentUser }) => {
         };
 
         if (editingEstId) {
+            const targetEst = estimations.find(est => (est.id == editingEstId || est._id == editingEstId));
+            if (targetEst) {
+                const estDate = targetEst.createdAt || targetEst.date;
+                if (!canEditDelete(permission, estDate)) {
+                    alert("You cannot edit this estimation (Time limit exceeded).");
+                    return;
+                }
+            }
             updateEstimation(editingEstId, dataToSave);
         } else {
             addEstimation({
@@ -993,6 +1019,15 @@ const Estimation = ({ onNavigate, pageData, setPageData, currentUser }) => {
 
     const handleDeleteEstimation = (e, id) => {
         e.stopPropagation();
+
+        const targetEst = estimations.find(est => (est.id == id || est._id == id));
+        if (targetEst) {
+            const estDate = targetEst.createdAt || targetEst.date;
+            if (!canEditDelete(permission, estDate)) {
+                alert("You cannot delete this estimation (Restricted access or Time limit exceeded).");
+                return;
+            }
+        }
         const password = prompt("Enter password to delete:");
         if (password !== 'AlwaysVini') {
             alert("Incorrect password!");
@@ -1026,22 +1061,52 @@ const Estimation = ({ onNavigate, pageData, setPageData, currentUser }) => {
         if (BAR_SHAPES[steelForm.shape]) return BAR_SHAPES[steelForm.shape];
         const custom = customShapes.find(s => (s.id == steelForm.shape || s._id == steelForm.shape));
         if (custom) {
-            if (custom.type === 'SEGMENT_BASED') {
+            // Robust parsing for segments
+            let safeSegments = custom.segments;
+            if (typeof safeSegments === 'string') {
+                try { safeSegments = JSON.parse(safeSegments); } catch (e) { safeSegments = []; }
+            }
+            if (!Array.isArray(safeSegments)) safeSegments = [];
+
+            // Robust parsing for deductions
+            let safeDeductions = custom.deductions;
+            if (typeof safeDeductions === 'string') {
+                try { safeDeductions = JSON.parse(safeDeductions); } catch (e) { safeDeductions = {}; }
+            }
+            if (!safeDeductions || typeof safeDeductions !== 'object') safeDeductions = {};
+
+            // Check type OR if segments exist (fallback)
+            if (custom.type === 'SEGMENT_BASED' || safeSegments.length > 0) {
                 return {
                     ...custom,
-                    fields: custom.segments.map(s => s.label),
+                    segments: safeSegments,
+                    deductions: safeDeductions,
+                    fields: safeSegments.map(s => s.label),
                     image: '',
                     type: 'SEGMENT_BASED'
                 };
             }
-            return { ...custom, fields: custom.variables, image: '', type: 'CUSTOM_DEFINED' };
+            return {
+                ...custom,
+                deductions: safeDeductions,
+                fields: custom.variables,
+                image: '',
+                type: 'CUSTOM_DEFINED'
+            };
         }
         return BAR_SHAPES.STRAIGHT;
     }, [steelForm.shape, customShapes]);
 
     const [editingItemIndex, setEditingItemIndex] = useState(null);
 
-    const activeItems = activeEstimation?.items || [];
+    const activeItems = useMemo(() => {
+        if (!activeEstimation?.items) return [];
+        if (Array.isArray(activeEstimation.items)) return activeEstimation.items;
+        if (typeof activeEstimation.items === 'string') {
+            try { return JSON.parse(activeEstimation.items); } catch (e) { return []; }
+        }
+        return [];
+    }, [activeEstimation]);
 
     const totalAmount = useMemo(() => {
         if (activeEstimation?.type === 'steel') return 0; // Steel uses weight
@@ -1069,7 +1134,7 @@ const Estimation = ({ onNavigate, pageData, setPageData, currentUser }) => {
     useEffect(() => {
         const savedEstId = localStorage.getItem('vini_active_est_id');
         if (savedEstId && estimations.length > 0 && !activeEstimation && !pageData) {
-            const found = estimations.find(e => e.id === parseInt(savedEstId) || e.id === savedEstId);
+            const found = estimations.find(e => e._id === savedEstId || e.id === savedEstId || e.id === parseInt(savedEstId));
             if (found) {
                 setActiveEstimation(found);
                 setView('detail');
@@ -1161,15 +1226,24 @@ const Estimation = ({ onNavigate, pageData, setPageData, currentUser }) => {
             BAR_SHAPES[newShapeId].fields.forEach(f => newDims[f] = 0);
         } else {
             // Check custom defined
-            const custom = customShapes.find(s => s.id == newShapeId);
+            const custom = customShapes.find(s => (s.id == newShapeId || s._id == newShapeId));
             if (custom) {
-                if (custom.type === 'SEGMENT_BASED') {
-                    custom.segments.forEach(s => {
+                // Robust parsing for segments
+                let safeSegments = custom.segments;
+                if (typeof safeSegments === 'string') {
+                    try { safeSegments = JSON.parse(safeSegments); } catch (e) { safeSegments = []; }
+                }
+                if (!Array.isArray(safeSegments)) safeSegments = [];
+
+                if (custom.type === 'SEGMENT_BASED' || safeSegments.length > 0) {
+                    safeSegments.forEach(s => {
                         newDims[s.label] = s.length || 0;
                         newDims[`${s.label}_mult`] = s.multiplier || 1;
                     });
                 } else {
-                    custom.variables.forEach(v => newDims[v] = 0);
+                    if (Array.isArray(custom.variables)) {
+                        custom.variables.forEach(v => newDims[v] = 0);
+                    }
                 }
             }
         }
@@ -1223,7 +1297,7 @@ const Estimation = ({ onNavigate, pageData, setPageData, currentUser }) => {
     };
 
     // --- General Item Handlers ---
-    const handleAddItem = (e) => {
+    const handleAddItem = async (e) => {
         e.preventDefault();
         let newItem = {
             description: itemForm.description,
@@ -1258,25 +1332,6 @@ const Estimation = ({ onNavigate, pageData, setPageData, currentUser }) => {
                 chemicalBags: res.chemicalBags,
                 deductions: masonryForm.deductions
             };
-
-            // Fixed Dimension Logic
-            setMasonryForm(prev => {
-                if (prev.isFixed) {
-                    // Lock Height & Thickness, Reset Length
-                    return {
-                        ...prev,
-                        wallDims: { l: 0, h: prev.wallDims.h, t: prev.wallDims.t },
-                        deductions: []
-                    };
-                } else {
-                    // Reset All
-                    return {
-                        ...prev,
-                        wallDims: { l: 0, h: 0, t: 0 },
-                        deductions: []
-                    };
-                }
-            });
         } else if (activeEstimation.type === 'plaster') {
             const area = parseFloat(itemForm.manualArea) || ((itemForm.wallDims?.l || 0) * (itemForm.wallDims?.h || 0));
             const thickness = itemForm.thickness || activeEstimation.defaultPlasterThickness || 12;
@@ -1322,17 +1377,37 @@ const Estimation = ({ onNavigate, pageData, setPageData, currentUser }) => {
                 area: area,
                 manualArea: flooringForm.manualArea
             };
-
-            setFlooringForm(prev => ({ ...prev, description: '', roomDims: { l: 0, w: 0 } }));
         } else {
             // For general type, newItem is already defined above
         }
 
-        saveItem(newItem);
+        const success = await saveItem(newItem);
+        if (success) {
+            if (activeEstimation.type === 'masonry') {
+                // Fixed Dimension Logic
+                setMasonryForm(prev => {
+                    if (prev.isFixed) {
+                        // Lock Height & Thickness, Reset Length
+                        return {
+                            ...prev,
+                            wallDims: { l: 0, h: prev.wallDims.h, t: prev.wallDims.t },
+                            deductions: []
+                        };
+                    } else {
+                        // Reset All
+                        return {
+                            ...prev,
+                            wallDims: { l: 0, h: 0, t: 0 },
+                            deductions: []
+                        };
+                    }
+                });
+            }
+        }
     };
 
     // --- Steel Item Handlers ---
-    const handleAddSteelItem = (e) => {
+    const handleAddSteelItem = async (e) => {
         e.preventDefault();
         if (!steelForm.barMark) return alert("Bar Mark is required");
 
@@ -1375,41 +1450,69 @@ const Estimation = ({ onNavigate, pageData, setPageData, currentUser }) => {
             unitWeight: unitWt,
             totalWeight: totalWt
         };
-        saveItem(newItem);
-
-        // Reset form but keep some defaults
-        setSteelForm(prev => ({
-            ...prev,
-            barMark: '',
-            description: '',
-            dims: Object.keys(prev.dims).reduce((acc, k) => ({ ...acc, [k]: 0 }), {})
-        }));
+        const success = await saveItem(newItem);
+        if (success) {
+            // Reset form but keep some defaults
+            setSteelForm(prev => ({
+                ...prev,
+                barMark: '',
+                description: '',
+                dims: Object.keys(prev.dims).reduce((acc, k) => ({ ...acc, [k]: 0 }), {})
+            }));
+        }
     };
 
-    const saveItem = (newItem) => {
+    const saveItem = async (newItem) => {
+        // Sanitize newItem to remove NaN/Nulls in numbers
+        const sanitizedItem = { ...newItem };
+        Object.keys(sanitizedItem).forEach(key => {
+            if (typeof sanitizedItem[key] === 'number') {
+                if (isNaN(sanitizedItem[key])) sanitizedItem[key] = 0;
+            }
+        });
+
         let updatedItems;
         if (editingItemIndex !== null) {
             updatedItems = [...activeItems];
-            updatedItems[editingItemIndex] = newItem;
+            updatedItems[editingItemIndex] = sanitizedItem;
         } else {
-            updatedItems = [...activeItems, newItem];
+            updatedItems = [...activeItems, sanitizedItem];
         }
-        updateEstimation(activeEstimation._id || activeEstimation.id, { items: updatedItems });
-        setActiveEstimation({ ...activeEstimation, items: updatedItems });
-        const [plasterForm, setPlasterForm] = React.useState({
-            description: '', manualArea: '', wallDims: { l: 0, h: 0 },
-            thickness: 12, ratio: '1:4', deductions: []
-        });
 
-        const [flooringForm, setFlooringForm] = React.useState({
-            description: '', roomDims: { l: 0, w: 0 },
-            tileSize: '600x600', // mm
-            beddingThickness: 50, // mm
-            ratio: '1:6', // or CHEMICAL
-            wastage: 5 // %
-        });
-        setItemForm({ description: '', unit: '', quantity: '', rate: '', wallDims: { l: 0, h: 0 }, thickness: 0, ratio: '1:4', manualArea: 0 });
-        setEditingItemIndex(null);
+        const estId = activeEstimation._id || activeEstimation.id;
+        console.log("Saving Item to Estimation:", estId);
+
+        try {
+            const res = await updateEstimation(estId, { items: updatedItems });
+            if (res && res.success) {
+                setActiveEstimation({ ...activeEstimation, items: updatedItems });
+
+                // Reset Generic Forms (that are cleared regardless of type)
+                setPlasterForm({
+                    description: '', manualArea: '', wallDims: { l: 0, h: 0 },
+                    thickness: 12, ratio: '1:4', deductions: []
+                });
+
+                setFlooringForm({
+                    description: '', roomDims: { l: 0, w: 0 },
+                    tileSize: '600x600', // mm
+                    beddingThickness: 50, // mm
+                    ratio: '1:6', // or CHEMICAL
+                    wastage: 5 // %
+                });
+
+                setItemForm({ description: '', unit: '', quantity: '', rate: '', wallDims: { l: 0, h: 0 }, thickness: 0, ratio: '1:4', manualArea: 0 });
+                setEditingItemIndex(null);
+                return true;
+            } else {
+                alert("Failed to save item: " + (res?.message || "Unknown Error"));
+                return false;
+            }
+        } catch (e) {
+            console.error("Save Error:", e);
+            alert("Save Exception: " + e.message);
+            return false;
+        }
     };
 
     const handleEditItem = (index) => {
@@ -1718,391 +1821,393 @@ const Estimation = ({ onNavigate, pageData, setPageData, currentUser }) => {
                 </div>
 
                 <div className="estimation-content">
-                    <div className="card item-form-card no-print">
-                        <h3>{editingItemIndex !== null ? 'Edit Item' : 'Add New Item'}</h3>
-                        {isSteel ? (
-                            <form onSubmit={handleAddSteelItem} className="item-form steel-form">
-                                <div className="form-row">
-                                    <div className="form-group"><label>Bar Mark</label><input type="text" required value={steelForm.barMark} onChange={e => setSteelForm({ ...steelForm, barMark: e.target.value })} placeholder="e.g. B1" /></div>
-                                    <div className="form-group grow-2"><label>Description</label><input type="text" value={steelForm.description} onChange={e => setSteelForm({ ...steelForm, description: e.target.value })} placeholder="Optional description" /></div>
-                                    <div className="form-group">
-                                        <label>Shape</label>
-                                        <div style={{ display: 'flex', gap: '5px' }}>
-                                            <select value={steelForm.shape} onChange={handleShapeChange} style={{ flex: 1 }}>
-                                                {/* <optgroup label="Standard Shapes">{Object.values(BAR_SHAPES).map(shape => <option key={shape.id} value={shape.id}>{shape.image} {shape.name}</option>)}</optgroup> */}
-                                                <optgroup label="Custom Shapes">{customShapes.map(shape => <option key={shape.id || shape._id} value={shape.id || shape._id}> {shape.name}</option>)}</optgroup>
-                                            </select>
-                                            <button type="button" className="btn btn-secondary" onClick={() => { if (setPageData) setPageData({ activeEstimationId: activeEstimation.id, view: 'detail' }); onNavigate('shape-manager'); }}>Manage Shapes</button>
+                    {canEditCurrent && (
+                        <div className="card item-form-card no-print">
+                            <h3>{editingItemIndex !== null ? 'Edit Item' : 'Add New Item'}</h3>
+                            {isSteel ? (
+                                <form onSubmit={handleAddSteelItem} className="item-form steel-form">
+                                    <div className="form-row">
+                                        <div className="form-group"><label>Bar Mark</label><input type="text" required value={steelForm.barMark} onChange={e => setSteelForm({ ...steelForm, barMark: e.target.value })} placeholder="e.g. B1" /></div>
+                                        <div className="form-group grow-2"><label>Description</label><input type="text" value={steelForm.description} onChange={e => setSteelForm({ ...steelForm, description: e.target.value })} placeholder="Optional description" /></div>
+                                        <div className="form-group">
+                                            <label>Shape</label>
+                                            <div style={{ display: 'flex', gap: '5px' }}>
+                                                <select value={steelForm.shape} onChange={handleShapeChange} style={{ flex: 1 }}>
+                                                    {/* <optgroup label="Standard Shapes">{Object.values(BAR_SHAPES).map(shape => <option key={shape.id} value={shape.id}>{shape.image} {shape.name}</option>)}</optgroup> */}
+                                                    <optgroup label="Custom Shapes">{customShapes.map(shape => <option key={shape.id || shape._id} value={shape.id || shape._id}> {shape.name}</option>)}</optgroup>
+                                                </select>
+                                                <button type="button" className="btn btn-secondary" onClick={() => { if (setPageData) setPageData({ activeEstimationId: activeEstimation.id, view: 'detail' }); onNavigate('shape-manager'); }}>Manage Shapes</button>
+                                            </div>
                                         </div>
+                                        <div className="form-group"><label>Diameter (mm)</label><select value={steelForm.dia} onChange={e => setSteelForm({ ...steelForm, dia: parseInt(e.target.value) })}>{[6, 8, 10, 12, 16, 20, 25, 32].map(d => <option key={d} value={d}>{d} mm</option>)}</select></div>
                                     </div>
-                                    <div className="form-group"><label>Diameter (mm)</label><select value={steelForm.dia} onChange={e => setSteelForm({ ...steelForm, dia: parseInt(e.target.value) })}>{[6, 8, 10, 12, 16, 20, 25, 32].map(d => <option key={d} value={d}>{d} mm</option>)}</select></div>
-                                </div>
-                                {currentShapeDef.type === 'SEGMENT_BASED' ? (
-                                    <div className="segments-table-container mb-4">
-                                        <table className="segments-table">
-                                            <thead><tr><th>Segment</th><th>Length (mm)</th><th>Multiplier</th><th>Bend</th><th>Deduction</th></tr></thead>
-                                            <tbody>{currentShapeDef.segments.map((seg, idx) => (
-                                                <tr key={idx}>
-                                                    <td className="seg-label">{seg.label}</td>
-                                                    <td><input type="number" className="input-cell" value={steelForm.dims[seg.label] || ''} onChange={e => handleDimChange(seg.label, e.target.value)} placeholder="0" /></td>
-                                                    <td>x {seg.multiplier || 1}</td>
-                                                    <td>{idx < currentShapeDef.segments.length - 1 ? '90' : '-'}</td>
-                                                    <td>{idx < currentShapeDef.segments.length - 1 ? '-2d' : '-'}</td>
-                                                </tr>
-                                            ))}</tbody>
-                                        </table>
-                                    </div>
-                                ) : (
-                                    <div className="form-row">{currentShapeDef.fields.map(field => (
-                                        <div key={field} className="form-group"><label>{field} (mm)</label><input type="number" required value={steelForm.dims[field] || ''} onChange={e => handleDimChange(field, e.target.value)} /></div>
-                                    ))}</div>
-                                )}
-                                {steelForm.shape === 'CUSTOM' && (
-                                    <div className="custom-shape-inputs" style={{ width: '100%' }}>
-                                        <div className="flex gap-2 mb-2 items-center"><label className="font-bold">Segments:</label><button type="button" className="btn-xs btn-secondary" onClick={addCustomSegment}>+ Add Segment</button></div>
-                                        <div className="flex flex-wrap gap-2">{steelForm.customSegments.map((seg, idx) => (
-                                            <div key={idx} className="form-group" style={{ minWidth: '80px' }}><label>{seg.name} (mm)</label><div className="flex"><input type="number" value={seg.value} onChange={e => updateCustomSegment(idx, e.target.value)} style={{ width: '80px' }} /><button type="button" className="text-red-500 ml-1" onClick={() => removeCustomSegment(idx)}></button></div></div>
-                                        ))}</div>
-                                    </div>
-                                )}
-                                <div className="form-row">
-                                    <div className="form-group"><label>No. Members</label><input type="number" required value={steelForm.noMembers} onChange={e => setSteelForm({ ...steelForm, noMembers: parseFloat(e.target.value) || 0 })} /></div>
-                                    <div className="form-group">
-                                        <label>Span Length (mm)</label>
-                                        <input type="number" value={steelForm.spanLength || ''} onChange={e => {
-                                            const span = parseFloat(e.target.value) || 0;
-                                            const spacing = steelForm.spacing || 150;
-                                            const bars = spacing > 0 ? Math.ceil(span / spacing) + 1 : 0;
-                                            setSteelForm({ ...steelForm, spanLength: span, barsPerMember: bars });
-                                        }} placeholder="Calculate Bars" />
-                                    </div>
-                                    <div className="form-group">
-                                        <label>Spacing (mm)</label>
-                                        <input type="number" value={steelForm.spacing} onChange={e => {
-                                            const spacing = parseFloat(e.target.value) || 0;
-                                            const span = steelForm.spanLength || 0;
-                                            const bars = (span > 0 && spacing > 0) ? Math.ceil(span / spacing) + 1 : steelForm.barsPerMember;
-                                            setSteelForm({ ...steelForm, spacing: spacing, barsPerMember: bars });
-                                        }} />
-                                    </div>
-                                    <div className="form-group"><label>Number of Bars</label><input type="number" required value={steelForm.barsPerMember} onChange={e => setSteelForm({ ...steelForm, barsPerMember: parseFloat(e.target.value) || 0 })} /></div>
-                                </div>
-                                <div className="form-actions mt-2">
-                                    <button type="submit" className="btn btn-primary">{editingItemIndex !== null ? 'Update Bar' : 'Add Bar'}</button>
-                                    {editingItemIndex !== null && <button type="button" className="btn btn-secondary" onClick={() => { setEditingItemIndex(null); setSteelForm({ barMark: '', shape: 'STRAIGHT', dia: 8, spacing: 0, noMembers: 1, barsPerMember: 0, dims: { A: 0, B: 0, C: 0, L: 0 }, customSegments: [], customBends: {} }); }}>Cancel</button>}
-                                </div>
-                            </form>
-                        ) : isConcrete ? (
-                            <form onSubmit={handleAddItem} className="item-form">
-                                <div className="form-row" style={{ width: '100%' }}>
-                                    <div className="form-group"><label>Shape</label><select value={concreteForm.shape} onChange={e => setConcreteForm({ ...concreteForm, shape: e.target.value, dims: {} })}>{Object.entries(CONCRETE_SHAPES).map(([key, def]) => <option key={key} value={key}>{def.label}</option>)}</select></div>
-                                    <div className="form-group grow-2"><label>Description</label><input type="text" required placeholder="e.g. Footing F1" value={itemForm.description} onChange={e => setItemForm({ ...itemForm, description: e.target.value })} /></div>
-                                </div>
-                                <div className="form-row" style={{ width: '100%' }}>
-                                    {CONCRETE_SHAPES[concreteForm.shape].fields.map(field => (
-                                        <div key={field} className="form-group"><label>{field} (m)</label><input type="number" step="0.001" required value={concreteForm.dims[field] || ''} onChange={e => {
-                                            const newDims = { ...concreteForm.dims, [field]: parseFloat(e.target.value) || 0 };
-                                            setConcreteForm({ ...concreteForm, dims: newDims });
-                                            const qty = calculateConcreteVolume(concreteForm.shape, newDims);
-                                            setItemForm(prev => ({ ...prev, quantity: qty.toFixed(3) }));
-                                        }} /></div>
-                                    ))}
-                                </div>
-                                <div className="form-row" style={{ width: '100%' }}>
-                                    <div className="form-group"><label>No. of Items</label><input type="number" required value={concreteForm.count} onChange={e => { const count = parseFloat(e.target.value) || 0; setConcreteForm({ ...concreteForm, count }); const vol = calculateConcreteVolume(concreteForm.shape, concreteForm.dims); setItemForm(prev => ({ ...prev, quantity: (vol * count).toFixed(3) })); }} /></div>
-                                    <div className="form-group"><label>Total Quantity (m3)</label><input type="number" readOnly value={itemForm.quantity} className="bg-gray-100" /></div>
-                                </div>
-                                <div className="form-actions">
-                                    <button type="submit" className="btn btn-primary">{editingItemIndex !== null ? 'Update Item' : 'Add Item'}</button>
-                                    {editingItemIndex !== null && <button type="button" className="btn btn-secondary" onClick={() => { setEditingItemIndex(null); setItemForm({ description: '', unit: '', quantity: '', rate: '', wallDims: { l: 0, h: 0 }, thickness: 0, ratio: '1:4', manualArea: 0 }); setConcreteForm({ shape: 'RECTANGLE', count: 1, dims: {} }); }}>Cancel</button>}
-                                </div>
-                            </form>
-                        ) : isMasonry ? (
-                            <form onSubmit={handleAddItem} className="item-form">
-                                <div className="form-row" style={{ width: '100%' }}>
-                                    <div className="form-group grow-2"><label>Description</label><input type="text" required placeholder="e.g. Wall W1" value={itemForm.description} onChange={e => setItemForm({ ...itemForm, description: e.target.value })} /></div>
-                                </div>
-                                <div className="form-row" style={{ width: '100%' }}>
-                                    <div className="form-group"><label>Wall Length (m)</label><input type="number" step="0.01" required value={masonryForm.wallDims.l} onChange={e => setMasonryForm({ ...masonryForm, wallDims: { ...masonryForm.wallDims, l: parseFloat(e.target.value) || 0 } })} /></div>
-                                    <div className="form-group"><label>Wall Height (m)</label><input type="number" step="0.01" required value={masonryForm.wallDims.h} onChange={e => setMasonryForm({ ...masonryForm, wallDims: { ...masonryForm.wallDims, h: parseFloat(e.target.value) || 0 } })} /></div>
-                                    <div className="form-group"><label>Wall Thickness (m)</label><input type="number" step="0.001" required value={masonryForm.wallDims.t} onChange={e => setMasonryForm({ ...masonryForm, wallDims: { ...masonryForm.wallDims, t: parseFloat(e.target.value) || 0 } })} /></div>
-                                </div>
-                                <div className="form-row" style={{ width: '100%', alignItems: 'center' }}>
-                                    <div className="form-group">
-                                        <label className="flex items-center gap-2" style={{ cursor: 'pointer' }}>
-                                            <input type="checkbox" checked={masonryForm.dimsIncludeMortar} onChange={e => setMasonryForm({ ...masonryForm, dimsIncludeMortar: e.target.checked })} />
-                                            <span className="text-sm">Block Dims include Mortar?</span>
-                                        </label>
-                                    </div>
-                                    <div className="form-group">
-                                        <label className="flex items-center gap-2" style={{ cursor: 'pointer', color: '#dc2626', fontWeight: 'bold' }}>
-                                            <input type="checkbox" checked={masonryForm.isFixed} onChange={e => setMasonryForm({ ...masonryForm, isFixed: e.target.checked })} />
-                                            <span className="text-sm">Lock H & T</span>
-                                        </label>
-                                    </div>
-                                </div>
-
-                                {/* Deductions Section */}
-                                <div className="card p-3 mb-3 bg-gray-50 border border-gray-200 shadow-sm rounded-lg">
-                                    <h5 className="text-sm font-bold mb-3 text-gray-700 flex items-center gap-2">
-                                        <span role="img" aria-label="cut">✂️</span> Deductions (Doors/Windows)
-                                    </h5>
-
-                                    {/* Deduction Inputs */}
-                                    <div className="grid grid-cols-12 gap-2 mb-3 items-end">
-                                        <div className="col-span-4">
-                                            <label className="text-xs font-semibold text-gray-600 mb-1 block">Name</label>
-                                            <input type="text" placeholder="e.g. D1" value={newDeduction.name} onChange={e => setNewDeduction({ ...newDeduction, name: e.target.value })} className="w-full form-input text-sm p-1 border rounded" />
-                                        </div>
-                                        <div className="col-span-2">
-                                            <label className="text-xs font-semibold text-gray-600 mb-1 block">L (m)</label>
-                                            <input type="number" placeholder="0.00" value={newDeduction.l} onChange={e => setNewDeduction({ ...newDeduction, l: parseFloat(e.target.value) })} className="w-full form-input text-sm p-1 border rounded" />
-                                        </div>
-                                        <div className="col-span-2">
-                                            <label className="text-xs font-semibold text-gray-600 mb-1 block">H (m)</label>
-                                            <input type="number" placeholder="0.00" value={newDeduction.h} onChange={e => setNewDeduction({ ...newDeduction, h: parseFloat(e.target.value) })} className="w-full form-input text-sm p-1 border rounded" />
-                                        </div>
-                                        <div className="col-span-2">
-                                            <label className="text-xs font-semibold text-gray-600 mb-1 block">Qty</label>
-                                            <input type="number" placeholder="1" value={newDeduction.count} onChange={e => setNewDeduction({ ...newDeduction, count: parseFloat(e.target.value) })} className="w-full form-input text-sm p-1 border rounded" />
-                                        </div>
-                                        <div className="col-span-2">
-                                            <button type="button" className="btn btn-secondary btn-sm w-full bg-blue-50 text-blue-600 hover:bg-blue-100 border-blue-200" onClick={addDeduction}>+ Add</button>
-                                        </div>
-                                    </div>
-
-                                    {/* Deduction List */}
-                                    {masonryForm.deductions && masonryForm.deductions.length > 0 && (
-                                        <div className="bg-white border border-gray-200 rounded-md overflow-hidden mt-3">
-                                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
-                                                <thead style={{ backgroundColor: '#f9fafb', color: '#6b7280', textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: '0.05em' }}>
-                                                    <tr>
-                                                        <th style={{ padding: '12px 16px', fontWeight: '600', textAlign: 'left', borderBottom: '1px solid #e5e7eb' }}>Name</th>
-                                                        <th style={{ padding: '12px 16px', fontWeight: '600', textAlign: 'left', borderBottom: '1px solid #e5e7eb' }}>Size (L x H)</th>
-                                                        <th style={{ padding: '12px 16px', fontWeight: '600', textAlign: 'center', borderBottom: '1px solid #e5e7eb' }}>Qty</th>
-                                                        <th style={{ padding: '12px 16px', fontWeight: '600', textAlign: 'right', borderBottom: '1px solid #e5e7eb' }}>Action</th>
+                                    {currentShapeDef.type === 'SEGMENT_BASED' ? (
+                                        <div className="segments-table-container mb-4">
+                                            <table className="segments-table">
+                                                <thead><tr><th>Segment</th><th>Length (mm)</th><th>Multiplier</th><th>Bend</th><th>Deduction</th></tr></thead>
+                                                <tbody>{currentShapeDef.segments.map((seg, idx) => (
+                                                    <tr key={idx}>
+                                                        <td className="seg-label">{seg.label}</td>
+                                                        <td><input type="number" className="input-cell" value={steelForm.dims[seg.label] || ''} onChange={e => handleDimChange(seg.label, e.target.value)} placeholder="0" /></td>
+                                                        <td>x {seg.multiplier || 1}</td>
+                                                        <td>{idx < currentShapeDef.segments.length - 1 ? '90' : '-'}</td>
+                                                        <td>{idx < currentShapeDef.segments.length - 1 ? '-2d' : '-'}</td>
                                                     </tr>
-                                                </thead>
-                                                <tbody>
-                                                    {masonryForm.deductions.map((d, idx) => (
-                                                        <tr key={idx} style={{ borderBottom: idx === masonryForm.deductions.length - 1 ? 'none' : '1px solid #f3f4f6' }}>
-                                                            <td style={{ padding: '12px 16px', color: '#111827', fontWeight: '500' }}>{d.name || <span className="text-gray-400 italic">--</span>}</td>
-                                                            <td style={{ padding: '12px 16px', color: '#4b5563' }}>{d.l}m x {d.h}m</td>
-                                                            <td style={{ padding: '12px 16px', color: '#111827', textAlign: 'center' }}>{d.count}</td>
-                                                            <td style={{ padding: '12px 16px', textAlign: 'right' }}>
-                                                                <button type="button"
-                                                                    onClick={() => removeDeduction(idx)}
-                                                                    style={{ color: '#ef4444', padding: '4px 8px', borderRadius: '4px', border: 'none', background: 'transparent', cursor: 'pointer' }}
-                                                                    onMouseOver={e => e.currentTarget.style.backgroundColor = '#fef2f2'}
-                                                                    onMouseOut={e => e.currentTarget.style.backgroundColor = 'transparent'}
-                                                                >
-                                                                    🗑️
-                                                                </button>
-                                                            </td>
-                                                        </tr>
-                                                    ))}
-                                                </tbody>
+                                                ))}</tbody>
                                             </table>
                                         </div>
-                                    )}
-                                </div>
-
-                                <div className="form-row" style={{ width: '100%' }}>
-                                    <div className="form-group">
-                                        <label>Mortar Ratio</label>
-                                        <select value={masonryForm.mortarRatio} onChange={e => {
-                                            const ratio = e.target.value;
-                                            const startThickness = ratio === 'CHEMICAL' ? 3 : 10;
-                                            setMasonryForm({ ...masonryForm, mortarRatio: ratio, mortarThickness: startThickness });
-                                        }}>
-                                            <option value="1:3">1:3</option>
-                                            <option value="1:4">1:4</option>
-                                            <option value="1:5">1:5</option>
-                                            <option value="1:6">1:6</option>
-                                            <option value="CHEMICAL">Chemical</option>
-                                        </select>
-                                    </div>
-                                    <div className="form-group">
-                                        <label>Mortar Thickness (mm)</label>
-                                        <input type="number" step="0.1" value={masonryForm.mortarThickness || 10} onChange={e => setMasonryForm({ ...masonryForm, mortarThickness: parseFloat(e.target.value) || 0 })} />
-                                    </div>
-                                </div>
-                                <div className="form-row" style={{ width: '100%' }}>
-                                    <div className="form-group"><label>Calculated Bricks/Blocks</label><input type="number" readOnly value={calculateMasonry(masonryForm).count} className="bg-gray-100" /></div>
-                                    <div className="form-group"><label>Wet Mortar Vol (m3)</label><input type="number" readOnly value={calculateMasonry(masonryForm).mortarWet?.toFixed(3)} className="bg-gray-100" /></div>
-                                    {masonryForm.mortarRatio === 'CHEMICAL' ? (
-                                        <div className="form-group"><label>Chemical Weight (kg)</label><input type="number" readOnly value={calculateMasonry(masonryForm).chemicalWeight?.toFixed(2)} className="bg-gray-100" /></div>
                                     ) : (
-                                        <div className="form-group"><label>Dry Mortar Vol (m3)</label><input type="number" readOnly value={calculateMasonry(masonryForm).mortarDry?.toFixed(3)} className="bg-gray-100" /></div>
+                                        <div className="form-row">{currentShapeDef.fields.map(field => (
+                                            <div key={field} className="form-group"><label>{field} (mm)</label><input type="number" required value={steelForm.dims[field] || ''} onChange={e => handleDimChange(field, e.target.value)} /></div>
+                                        ))}</div>
                                     )}
-                                </div>
-                                <div className="form-actions">
-                                    <button type="submit" className="btn btn-primary">{editingItemIndex !== null ? 'Update Item' : 'Add Item'}</button>
-                                    {editingItemIndex !== null && <button type="button" className="btn btn-secondary" onClick={() => { setEditingItemIndex(null); setItemForm({ description: '', unit: '', quantity: '', rate: '', wallDims: { l: 0, h: 0 }, thickness: 0, ratio: '1:4', manualArea: 0 }); setMasonryForm({ material: 'AAC', customDims: { l: 0, w: 0, h: 0 }, wallDims: { l: 0, h: 0, t: 0 }, mortarRatio: '1:6', dimsIncludeMortar: false, manualQty: 0, isFixed: false }); }}>Cancel</button>}
-                                </div>
-                            </form>
-                        ) : isPlaster ? (
-                            <form onSubmit={handleAddItem} className="item-form">
-                                <div className="form-row" style={{ width: '100%' }}>
-                                    <div className="form-group grow-2"><label>Description</label><input type="text" required placeholder="e.g. Wall P1" value={itemForm.description} onChange={e => setItemForm({ ...itemForm, description: e.target.value })} /></div>
-                                </div>
-                                <div className="form-row" style={{ width: '100%' }}>
-                                    <div className="form-group"><label>Length (m)</label><input type="number" step="0.01" value={itemForm.wallDims?.l || ''} onChange={e => {
-                                        const val = parseFloat(e.target.value) || 0;
-                                        const h = itemForm.wallDims?.h || 0;
-                                        const area = val * h;
-                                        setItemForm({ ...itemForm, wallDims: { ...itemForm.wallDims, l: val }, manualArea: area > 0 ? parseFloat(area.toFixed(2)) : itemForm.manualArea });
-                                    }} placeholder="Optional" /></div>
-                                    <div className="form-group"><label>Height (m)</label><input type="number" step="0.01" value={itemForm.wallDims?.h || ''} onChange={e => {
-                                        const val = parseFloat(e.target.value) || 0;
-                                        const l = itemForm.wallDims?.l || 0;
-                                        const area = l * val;
-                                        setItemForm({ ...itemForm, wallDims: { ...itemForm.wallDims, h: val }, manualArea: area > 0 ? parseFloat(area.toFixed(2)) : itemForm.manualArea });
-                                    }} placeholder="Optional" /></div>
-                                    <div className="form-group"><label>OR Area (m2)</label><input type="number" step="0.01" value={itemForm.manualArea || ''} onChange={e => setItemForm({ ...itemForm, manualArea: parseFloat(e.target.value) || 0 })} placeholder="Enter Area" /></div>
-                                </div>
-
-                                {/* Deductions Section for Plaster */}
-                                <div className="card p-3 mb-3 bg-gray-50 border border-gray-200 shadow-sm rounded-lg">
-                                    <h5 className="text-sm font-bold mb-3 text-gray-700 flex items-center gap-2">
-                                        <span role="img" aria-label="cut">✂️</span> Deductions (Doors/Windows)
-                                    </h5>
-
-                                    {/* Deduction Inputs */}
-                                    <div className="grid grid-cols-12 gap-2 mb-3 items-end">
-                                        <div className="col-span-4">
-                                            <label className="text-xs font-semibold text-gray-600 mb-1 block">Name</label>
-                                            <input type="text" placeholder="e.g. D1" value={newDeduction.name} onChange={e => setNewDeduction({ ...newDeduction, name: e.target.value })} className="w-full form-input text-sm p-1 border rounded" />
+                                    {steelForm.shape === 'CUSTOM' && (
+                                        <div className="custom-shape-inputs" style={{ width: '100%' }}>
+                                            <div className="flex gap-2 mb-2 items-center"><label className="font-bold">Segments:</label><button type="button" className="btn-xs btn-secondary" onClick={addCustomSegment}>+ Add Segment</button></div>
+                                            <div className="flex flex-wrap gap-2">{steelForm.customSegments.map((seg, idx) => (
+                                                <div key={idx} className="form-group" style={{ minWidth: '80px' }}><label>{seg.name} (mm)</label><div className="flex"><input type="number" value={seg.value} onChange={e => updateCustomSegment(idx, e.target.value)} style={{ width: '80px' }} /><button type="button" className="text-red-500 ml-1" onClick={() => removeCustomSegment(idx)}></button></div></div>
+                                            ))}</div>
                                         </div>
-                                        <div className="col-span-2">
-                                            <label className="text-xs font-semibold text-gray-600 mb-1 block">L (m)</label>
-                                            <input type="number" placeholder="0.00" value={newDeduction.l} onChange={e => setNewDeduction({ ...newDeduction, l: parseFloat(e.target.value) })} className="w-full form-input text-sm p-1 border rounded" />
+                                    )}
+                                    <div className="form-row">
+                                        <div className="form-group"><label>No. Members</label><input type="number" required value={steelForm.noMembers} onChange={e => setSteelForm({ ...steelForm, noMembers: parseFloat(e.target.value) || 0 })} /></div>
+                                        <div className="form-group">
+                                            <label>Span Length (mm)</label>
+                                            <input type="number" value={steelForm.spanLength || ''} onChange={e => {
+                                                const span = parseFloat(e.target.value) || 0;
+                                                const spacing = steelForm.spacing || 150;
+                                                const bars = spacing > 0 ? Math.ceil(span / spacing) + 1 : 0;
+                                                setSteelForm({ ...steelForm, spanLength: span, barsPerMember: bars });
+                                            }} placeholder="Calculate Bars" />
                                         </div>
-                                        <div className="col-span-2">
-                                            <label className="text-xs font-semibold text-gray-600 mb-1 block">H (m)</label>
-                                            <input type="number" placeholder="0.00" value={newDeduction.h} onChange={e => setNewDeduction({ ...newDeduction, h: parseFloat(e.target.value) })} className="w-full form-input text-sm p-1 border rounded" />
+                                        <div className="form-group">
+                                            <label>Spacing (mm)</label>
+                                            <input type="number" value={steelForm.spacing} onChange={e => {
+                                                const spacing = parseFloat(e.target.value) || 0;
+                                                const span = steelForm.spanLength || 0;
+                                                const bars = (span > 0 && spacing > 0) ? Math.ceil(span / spacing) + 1 : steelForm.barsPerMember;
+                                                setSteelForm({ ...steelForm, spacing: spacing, barsPerMember: bars });
+                                            }} />
                                         </div>
-                                        <div className="col-span-2">
-                                            <label className="text-xs font-semibold text-gray-600 mb-1 block">Qty</label>
-                                            <input type="number" placeholder="1" value={newDeduction.count} onChange={e => setNewDeduction({ ...newDeduction, count: parseFloat(e.target.value) })} className="w-full form-input text-sm p-1 border rounded" />
+                                        <div className="form-group"><label>Number of Bars</label><input type="number" required value={steelForm.barsPerMember} onChange={e => setSteelForm({ ...steelForm, barsPerMember: parseFloat(e.target.value) || 0 })} /></div>
+                                    </div>
+                                    <div className="form-actions mt-2">
+                                        <button type="submit" className="btn btn-primary">{editingItemIndex !== null ? 'Update Bar' : 'Add Bar'}</button>
+                                        {editingItemIndex !== null && <button type="button" className="btn btn-secondary" onClick={() => { setEditingItemIndex(null); setSteelForm({ barMark: '', shape: 'STRAIGHT', dia: 8, spacing: 0, noMembers: 1, barsPerMember: 0, dims: { A: 0, B: 0, C: 0, L: 0 }, customSegments: [], customBends: {} }); }}>Cancel</button>}
+                                    </div>
+                                </form>
+                            ) : isConcrete ? (
+                                <form onSubmit={handleAddItem} className="item-form">
+                                    <div className="form-row" style={{ width: '100%' }}>
+                                        <div className="form-group"><label>Shape</label><select value={concreteForm.shape} onChange={e => setConcreteForm({ ...concreteForm, shape: e.target.value, dims: {} })}>{Object.entries(CONCRETE_SHAPES).map(([key, def]) => <option key={key} value={key}>{def.label}</option>)}</select></div>
+                                        <div className="form-group grow-2"><label>Description</label><input type="text" required placeholder="e.g. Footing F1" value={itemForm.description} onChange={e => setItemForm({ ...itemForm, description: e.target.value })} /></div>
+                                    </div>
+                                    <div className="form-row" style={{ width: '100%' }}>
+                                        {CONCRETE_SHAPES[concreteForm.shape].fields.map(field => (
+                                            <div key={field} className="form-group"><label>{field} (m)</label><input type="number" step="0.001" required value={concreteForm.dims[field] || ''} onChange={e => {
+                                                const newDims = { ...concreteForm.dims, [field]: parseFloat(e.target.value) || 0 };
+                                                setConcreteForm({ ...concreteForm, dims: newDims });
+                                                const qty = calculateConcreteVolume(concreteForm.shape, newDims);
+                                                setItemForm(prev => ({ ...prev, quantity: qty.toFixed(3) }));
+                                            }} /></div>
+                                        ))}
+                                    </div>
+                                    <div className="form-row" style={{ width: '100%' }}>
+                                        <div className="form-group"><label>No. of Items</label><input type="number" required value={concreteForm.count} onChange={e => { const count = parseFloat(e.target.value) || 0; setConcreteForm({ ...concreteForm, count }); const vol = calculateConcreteVolume(concreteForm.shape, concreteForm.dims); setItemForm(prev => ({ ...prev, quantity: (vol * count).toFixed(3) })); }} /></div>
+                                        <div className="form-group"><label>Total Quantity (m3)</label><input type="number" readOnly value={itemForm.quantity} className="bg-gray-100" /></div>
+                                    </div>
+                                    <div className="form-actions">
+                                        <button type="submit" className="btn btn-primary">{editingItemIndex !== null ? 'Update Item' : 'Add Item'}</button>
+                                        {editingItemIndex !== null && <button type="button" className="btn btn-secondary" onClick={() => { setEditingItemIndex(null); setItemForm({ description: '', unit: '', quantity: '', rate: '', wallDims: { l: 0, h: 0 }, thickness: 0, ratio: '1:4', manualArea: 0 }); setConcreteForm({ shape: 'RECTANGLE', count: 1, dims: {} }); }}>Cancel</button>}
+                                    </div>
+                                </form>
+                            ) : isMasonry ? (
+                                <form onSubmit={handleAddItem} className="item-form">
+                                    <div className="form-row" style={{ width: '100%' }}>
+                                        <div className="form-group grow-2"><label>Description</label><input type="text" required placeholder="e.g. Wall W1" value={itemForm.description} onChange={e => setItemForm({ ...itemForm, description: e.target.value })} /></div>
+                                    </div>
+                                    <div className="form-row" style={{ width: '100%' }}>
+                                        <div className="form-group"><label>Wall Length (m)</label><input type="number" step="0.01" required value={masonryForm.wallDims.l} onChange={e => setMasonryForm({ ...masonryForm, wallDims: { ...masonryForm.wallDims, l: parseFloat(e.target.value) || 0 } })} /></div>
+                                        <div className="form-group"><label>Wall Height (m)</label><input type="number" step="0.01" required value={masonryForm.wallDims.h} onChange={e => setMasonryForm({ ...masonryForm, wallDims: { ...masonryForm.wallDims, h: parseFloat(e.target.value) || 0 } })} /></div>
+                                        <div className="form-group"><label>Wall Thickness (m)</label><input type="number" step="0.001" required value={masonryForm.wallDims.t} onChange={e => setMasonryForm({ ...masonryForm, wallDims: { ...masonryForm.wallDims, t: parseFloat(e.target.value) || 0 } })} /></div>
+                                    </div>
+                                    <div className="form-row" style={{ width: '100%', alignItems: 'center' }}>
+                                        <div className="form-group">
+                                            <label className="flex items-center gap-2" style={{ cursor: 'pointer' }}>
+                                                <input type="checkbox" checked={masonryForm.dimsIncludeMortar} onChange={e => setMasonryForm({ ...masonryForm, dimsIncludeMortar: e.target.checked })} />
+                                                <span className="text-sm">Block Dims include Mortar?</span>
+                                            </label>
                                         </div>
-                                        <div className="col-span-2">
-                                            <button type="button" className="btn btn-secondary btn-sm w-full bg-blue-50 text-blue-600 hover:bg-blue-100 border-blue-200" onClick={addDeduction}>+ Add</button>
+                                        <div className="form-group">
+                                            <label className="flex items-center gap-2" style={{ cursor: 'pointer', color: '#dc2626', fontWeight: 'bold' }}>
+                                                <input type="checkbox" checked={masonryForm.isFixed} onChange={e => setMasonryForm({ ...masonryForm, isFixed: e.target.checked })} />
+                                                <span className="text-sm">Lock H & T</span>
+                                            </label>
                                         </div>
                                     </div>
 
-                                    {/* Deduction List */}
-                                    {itemForm.deductions && itemForm.deductions.length > 0 && (
-                                        <div className="bg-white border border-gray-200 rounded-md overflow-hidden mt-3">
-                                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
-                                                <thead style={{ backgroundColor: '#f9fafb', color: '#6b7280', textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: '0.05em' }}>
-                                                    <tr>
-                                                        <th style={{ padding: '12px 16px', fontWeight: '600', textAlign: 'left', borderBottom: '1px solid #e5e7eb' }}>Name</th>
-                                                        <th style={{ padding: '12px 16px', fontWeight: '600', textAlign: 'left', borderBottom: '1px solid #e5e7eb' }}>Size (L x H)</th>
-                                                        <th style={{ padding: '12px 16px', fontWeight: '600', textAlign: 'center', borderBottom: '1px solid #e5e7eb' }}>Qty</th>
-                                                        <th style={{ padding: '12px 16px', fontWeight: '600', textAlign: 'right', borderBottom: '1px solid #e5e7eb' }}>Action</th>
-                                                    </tr>
-                                                </thead>
-                                                <tbody>
-                                                    {itemForm.deductions.map((d, idx) => (
-                                                        <tr key={idx} style={{ borderBottom: idx === itemForm.deductions.length - 1 ? 'none' : '1px solid #f3f4f6' }}>
-                                                            <td style={{ padding: '12px 16px', color: '#111827', fontWeight: '500' }}>{d.name || <span className="text-gray-400 italic">--</span>}</td>
-                                                            <td style={{ padding: '12px 16px', color: '#4b5563' }}>{d.l}m x {d.h}m</td>
-                                                            <td style={{ padding: '12px 16px', color: '#111827', textAlign: 'center' }}>{d.count}</td>
-                                                            <td style={{ padding: '12px 16px', textAlign: 'right' }}>
-                                                                <button type="button"
-                                                                    onClick={() => removeDeduction(idx)}
-                                                                    style={{ color: '#ef4444', padding: '4px 8px', borderRadius: '4px', border: 'none', background: 'transparent', cursor: 'pointer' }}
-                                                                    onMouseOver={e => e.currentTarget.style.backgroundColor = '#fef2f2'}
-                                                                    onMouseOut={e => e.currentTarget.style.backgroundColor = 'transparent'}
-                                                                >
-                                                                    🗑️
-                                                                </button>
-                                                            </td>
+                                    {/* Deductions Section */}
+                                    <div className="card p-3 mb-3 bg-gray-50 border border-gray-200 shadow-sm rounded-lg">
+                                        <h5 className="text-sm font-bold mb-3 text-gray-700 flex items-center gap-2">
+                                            <span role="img" aria-label="cut">✂️</span> Deductions (Doors/Windows)
+                                        </h5>
+
+                                        {/* Deduction Inputs */}
+                                        <div className="grid grid-cols-12 gap-2 mb-3 items-end">
+                                            <div className="col-span-4">
+                                                <label className="text-xs font-semibold text-gray-600 mb-1 block">Name</label>
+                                                <input type="text" placeholder="e.g. D1" value={newDeduction.name} onChange={e => setNewDeduction({ ...newDeduction, name: e.target.value })} className="w-full form-input text-sm p-1 border rounded" />
+                                            </div>
+                                            <div className="col-span-2">
+                                                <label className="text-xs font-semibold text-gray-600 mb-1 block">L (m)</label>
+                                                <input type="number" placeholder="0.00" value={newDeduction.l} onChange={e => setNewDeduction({ ...newDeduction, l: parseFloat(e.target.value) })} className="w-full form-input text-sm p-1 border rounded" />
+                                            </div>
+                                            <div className="col-span-2">
+                                                <label className="text-xs font-semibold text-gray-600 mb-1 block">H (m)</label>
+                                                <input type="number" placeholder="0.00" value={newDeduction.h} onChange={e => setNewDeduction({ ...newDeduction, h: parseFloat(e.target.value) })} className="w-full form-input text-sm p-1 border rounded" />
+                                            </div>
+                                            <div className="col-span-2">
+                                                <label className="text-xs font-semibold text-gray-600 mb-1 block">Qty</label>
+                                                <input type="number" placeholder="1" value={newDeduction.count} onChange={e => setNewDeduction({ ...newDeduction, count: parseFloat(e.target.value) })} className="w-full form-input text-sm p-1 border rounded" />
+                                            </div>
+                                            <div className="col-span-2">
+                                                <button type="button" className="btn btn-secondary btn-sm w-full bg-blue-50 text-blue-600 hover:bg-blue-100 border-blue-200" onClick={addDeduction}>+ Add</button>
+                                            </div>
+                                        </div>
+
+                                        {/* Deduction List */}
+                                        {masonryForm.deductions && masonryForm.deductions.length > 0 && (
+                                            <div className="bg-white border border-gray-200 rounded-md overflow-hidden mt-3">
+                                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
+                                                    <thead style={{ backgroundColor: '#f9fafb', color: '#6b7280', textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: '0.05em' }}>
+                                                        <tr>
+                                                            <th style={{ padding: '12px 16px', fontWeight: '600', textAlign: 'left', borderBottom: '1px solid #e5e7eb' }}>Name</th>
+                                                            <th style={{ padding: '12px 16px', fontWeight: '600', textAlign: 'left', borderBottom: '1px solid #e5e7eb' }}>Size (L x H)</th>
+                                                            <th style={{ padding: '12px 16px', fontWeight: '600', textAlign: 'center', borderBottom: '1px solid #e5e7eb' }}>Qty</th>
+                                                            <th style={{ padding: '12px 16px', fontWeight: '600', textAlign: 'right', borderBottom: '1px solid #e5e7eb' }}>Action</th>
                                                         </tr>
-                                                    ))}
-                                                </tbody>
-                                            </table>
-                                        </div>
-                                    )}
-                                </div>
+                                                    </thead>
+                                                    <tbody>
+                                                        {masonryForm.deductions.map((d, idx) => (
+                                                            <tr key={idx} style={{ borderBottom: idx === masonryForm.deductions.length - 1 ? 'none' : '1px solid #f3f4f6' }}>
+                                                                <td style={{ padding: '12px 16px', color: '#111827', fontWeight: '500' }}>{d.name || <span className="text-gray-400 italic">--</span>}</td>
+                                                                <td style={{ padding: '12px 16px', color: '#4b5563' }}>{d.l}m x {d.h}m</td>
+                                                                <td style={{ padding: '12px 16px', color: '#111827', textAlign: 'center' }}>{d.count}</td>
+                                                                <td style={{ padding: '12px 16px', textAlign: 'right' }}>
+                                                                    <button type="button"
+                                                                        onClick={() => removeDeduction(idx)}
+                                                                        style={{ color: '#ef4444', padding: '4px 8px', borderRadius: '4px', border: 'none', background: 'transparent', cursor: 'pointer' }}
+                                                                        onMouseOver={e => e.currentTarget.style.backgroundColor = '#fef2f2'}
+                                                                        onMouseOut={e => e.currentTarget.style.backgroundColor = 'transparent'}
+                                                                    >
+                                                                        🗑️
+                                                                    </button>
+                                                                </td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        )}
+                                    </div>
 
-                                <div className="form-row" style={{ width: '100%' }}>
-                                    <div className="form-group"><label>Thickness (mm)</label><input type="number" value={itemForm.thickness || activeEstimation.defaultPlasterThickness || 12} onChange={e => setItemForm({ ...itemForm, thickness: parseFloat(e.target.value) || 0 })} required /></div>
-                                    <div className="form-group">
-                                        <label>Ratio</label>
-                                        <select value={itemForm.ratio || activeEstimation.defaultPlasterRatio || '1:4'} onChange={e => setItemForm({ ...itemForm, ratio: e.target.value })}>
-                                            <option value="1:3">1:3</option>
-                                            <option value="1:4">1:4</option>
-                                            <option value="1:5">1:5</option>
-                                            <option value="1:6">1:6</option>
-                                        </select>
+                                    <div className="form-row" style={{ width: '100%' }}>
+                                        <div className="form-group">
+                                            <label>Mortar Ratio</label>
+                                            <select value={masonryForm.mortarRatio} onChange={e => {
+                                                const ratio = e.target.value;
+                                                const startThickness = ratio === 'CHEMICAL' ? 3 : 10;
+                                                setMasonryForm({ ...masonryForm, mortarRatio: ratio, mortarThickness: startThickness });
+                                            }}>
+                                                <option value="1:3">1:3</option>
+                                                <option value="1:4">1:4</option>
+                                                <option value="1:5">1:5</option>
+                                                <option value="1:6">1:6</option>
+                                                <option value="CHEMICAL">Chemical</option>
+                                            </select>
+                                        </div>
+                                        <div className="form-group">
+                                            <label>Mortar Thickness (mm)</label>
+                                            <input type="number" step="0.1" value={masonryForm.mortarThickness || 10} onChange={e => setMasonryForm({ ...masonryForm, mortarThickness: parseFloat(e.target.value) || 0 })} />
+                                        </div>
                                     </div>
-                                </div>
-                                <div className="form-row" style={{ width: '100%' }}>
-                                    <div className="form-group">
-                                        <label>Wet Volume (m3)</label>
-                                        <input type="number" readOnly value={(() => {
-                                            const area = parseFloat(itemForm.manualArea) || ((itemForm.wallDims?.l || 0) * (itemForm.wallDims?.h || 0));
-                                            const deductionArea = (itemForm.deductions || []).reduce((sum, d) => sum + ((parseFloat(d.l) || 0) * (parseFloat(d.h) || 0) * (parseFloat(d.count) || 0)), 0);
-                                            const netArea = Math.max(0, area - deductionArea);
-                                            const thickness = itemForm.thickness || activeEstimation.defaultPlasterThickness || 12;
-                                            return (netArea * (thickness / 1000)).toFixed(3);
-                                        })()} className="bg-gray-100" />
+                                    <div className="form-row" style={{ width: '100%' }}>
+                                        <div className="form-group"><label>Calculated Bricks/Blocks</label><input type="number" readOnly value={calculateMasonry(masonryForm).count} className="bg-gray-100" /></div>
+                                        <div className="form-group"><label>Wet Mortar Vol (m3)</label><input type="number" readOnly value={calculateMasonry(masonryForm).mortarWet?.toFixed(3)} className="bg-gray-100" /></div>
+                                        {masonryForm.mortarRatio === 'CHEMICAL' ? (
+                                            <div className="form-group"><label>Chemical Weight (kg)</label><input type="number" readOnly value={calculateMasonry(masonryForm).chemicalWeight?.toFixed(2)} className="bg-gray-100" /></div>
+                                        ) : (
+                                            <div className="form-group"><label>Dry Mortar Vol (m3)</label><input type="number" readOnly value={calculateMasonry(masonryForm).mortarDry?.toFixed(3)} className="bg-gray-100" /></div>
+                                        )}
                                     </div>
-                                    <div className="form-group">
-                                        <label>Dry Volume (m3)</label>
-                                        <input type="number" readOnly value={(() => {
-                                            const area = parseFloat(itemForm.manualArea) || ((itemForm.wallDims?.l || 0) * (itemForm.wallDims?.h || 0));
-                                            const deductionArea = (itemForm.deductions || []).reduce((sum, d) => sum + ((parseFloat(d.l) || 0) * (parseFloat(d.h) || 0) * (parseFloat(d.count) || 0)), 0);
-                                            const netArea = Math.max(0, area - deductionArea);
-                                            const thickness = itemForm.thickness || activeEstimation.defaultPlasterThickness || 12;
-                                            return ((netArea * (thickness / 1000)) * 1.33).toFixed(3);
-                                        })()} className="bg-gray-100" />
+                                    <div className="form-actions">
+                                        <button type="submit" className="btn btn-primary">{editingItemIndex !== null ? 'Update Item' : 'Add Item'}</button>
+                                        {editingItemIndex !== null && <button type="button" className="btn btn-secondary" onClick={() => { setEditingItemIndex(null); setItemForm({ description: '', unit: '', quantity: '', rate: '', wallDims: { l: 0, h: 0 }, thickness: 0, ratio: '1:4', manualArea: 0 }); setMasonryForm({ material: 'AAC', customDims: { l: 0, w: 0, h: 0 }, wallDims: { l: 0, h: 0, t: 0 }, mortarRatio: '1:6', dimsIncludeMortar: false, manualQty: 0, isFixed: false }); }}>Cancel</button>}
                                     </div>
-                                </div>
-                                <div className="form-actions">
-                                    <button type="submit" className="btn btn-primary">{editingItemIndex !== null ? 'Update Item' : 'Add Item'}</button>
-                                    {editingItemIndex !== null && <button type="button" className="btn btn-secondary" onClick={() => { setEditingItemIndex(null); setItemForm({ description: '', unit: '', quantity: '', rate: '', wallDims: { l: 0, h: 0 }, thickness: 0, ratio: '1:4', manualArea: 0 }); }}>Cancel</button>}
-                                </div>
-                            </form >
-                        ) : isFlooring ? (
-                            <form onSubmit={handleAddItem} className="item-form">
-                                <div className="form-row" style={{ width: '100%' }}>
-                                    <div className="form-group grow-2"><label>Description</label><input type="text" required placeholder="e.g. Master Bedroom" value={flooringForm.description} onChange={e => setFlooringForm({ ...flooringForm, description: e.target.value })} /></div>
-                                </div>
-                                <div className="form-row" style={{ width: '100%' }}>
-                                    <div className="form-group"><label>Room L (m)</label><input type="number" step="0.01" required value={flooringForm.roomDims.l} onChange={e => setFlooringForm({ ...flooringForm, roomDims: { ...flooringForm.roomDims, l: parseFloat(e.target.value) || 0 } })} /></div>
-                                    <div className="form-group"><label>Room W (m)</label><input type="number" step="0.01" required value={flooringForm.roomDims.w} onChange={e => setFlooringForm({ ...flooringForm, roomDims: { ...flooringForm.roomDims, w: parseFloat(e.target.value) || 0 } })} /></div>
-                                </div>
-                                <div className="form-row" style={{ width: '100%' }}>
-                                    <div className="form-group"><label>Calc Area (m2)</label>
-                                        <input
-                                            type="number"
-                                            value={flooringForm.manualArea || (flooringForm.roomDims.l * flooringForm.roomDims.w).toFixed(2)}
-                                            onChange={e => setFlooringForm({ ...flooringForm, manualArea: parseFloat(e.target.value) || '' })}
-                                            className={flooringForm.manualArea ? "bg-white border-blue-500" : "bg-gray-100"}
-                                        />
+                                </form>
+                            ) : isPlaster ? (
+                                <form onSubmit={handleAddItem} className="item-form">
+                                    <div className="form-row" style={{ width: '100%' }}>
+                                        <div className="form-group grow-2"><label>Description</label><input type="text" required placeholder="e.g. Wall P1" value={itemForm.description} onChange={e => setItemForm({ ...itemForm, description: e.target.value })} /></div>
                                     </div>
-                                </div>
-                                <div className="form-actions">
-                                    <button type="submit" className="btn btn-primary">{editingItemIndex !== null ? 'Update Item' : 'Add Item'}</button>
-                                </div>
-                            </form>
-                        ) : (
-                            <form onSubmit={handleAddItem} className="item-form">
-                                <div className="form-group grow-2"><label>Description</label><input type="text" required placeholder="e.g. Cement Bags" value={itemForm.description} onChange={e => setItemForm({ ...itemForm, description: e.target.value })} /></div>
-                                <div className="form-group"><label>Unit</label><input type="text" required placeholder="e.g. Bags" value={itemForm.unit} onChange={e => setItemForm({ ...itemForm, unit: e.target.value })} /></div>
-                                <div className="form-group"><label>Quantity</label><input type="number" required placeholder="0.00" value={itemForm.quantity} onChange={e => setItemForm({ ...itemForm, quantity: e.target.value })} /></div>
-                                <div className="form-group"><label>Rate</label><input type="number" required placeholder="0.00" value={itemForm.rate} onChange={e => setItemForm({ ...itemForm, rate: e.target.value })} /></div>
-                                <div className="form-actions">
-                                    <button type="submit" className="btn btn-primary">{editingItemIndex !== null ? 'Update Item' : 'Add Item'}</button>
-                                    {editingItemIndex !== null && <button type="button" className="btn btn-secondary" onClick={() => { setEditingItemIndex(null); setItemForm({ description: '', unit: '', quantity: '', rate: '', wallDims: { l: 0, h: 0 }, thickness: 0, ratio: '1:4', manualArea: 0 }); }}>Cancel</button>}
-                                </div>
-                            </form>
-                        )
-                        }
-                    </div >
+                                    <div className="form-row" style={{ width: '100%' }}>
+                                        <div className="form-group"><label>Length (m)</label><input type="number" step="0.01" value={itemForm.wallDims?.l || ''} onChange={e => {
+                                            const val = parseFloat(e.target.value) || 0;
+                                            const h = itemForm.wallDims?.h || 0;
+                                            const area = val * h;
+                                            setItemForm({ ...itemForm, wallDims: { ...itemForm.wallDims, l: val }, manualArea: area > 0 ? parseFloat(area.toFixed(2)) : itemForm.manualArea });
+                                        }} placeholder="Optional" /></div>
+                                        <div className="form-group"><label>Height (m)</label><input type="number" step="0.01" value={itemForm.wallDims?.h || ''} onChange={e => {
+                                            const val = parseFloat(e.target.value) || 0;
+                                            const l = itemForm.wallDims?.l || 0;
+                                            const area = l * val;
+                                            setItemForm({ ...itemForm, wallDims: { ...itemForm.wallDims, h: val }, manualArea: area > 0 ? parseFloat(area.toFixed(2)) : itemForm.manualArea });
+                                        }} placeholder="Optional" /></div>
+                                        <div className="form-group"><label>OR Area (m2)</label><input type="number" step="0.01" value={itemForm.manualArea || ''} onChange={e => setItemForm({ ...itemForm, manualArea: parseFloat(e.target.value) || 0 })} placeholder="Enter Area" /></div>
+                                    </div>
+
+                                    {/* Deductions Section for Plaster */}
+                                    <div className="card p-3 mb-3 bg-gray-50 border border-gray-200 shadow-sm rounded-lg">
+                                        <h5 className="text-sm font-bold mb-3 text-gray-700 flex items-center gap-2">
+                                            <span role="img" aria-label="cut">✂️</span> Deductions (Doors/Windows)
+                                        </h5>
+
+                                        {/* Deduction Inputs */}
+                                        <div className="grid grid-cols-12 gap-2 mb-3 items-end">
+                                            <div className="col-span-4">
+                                                <label className="text-xs font-semibold text-gray-600 mb-1 block">Name</label>
+                                                <input type="text" placeholder="e.g. D1" value={newDeduction.name} onChange={e => setNewDeduction({ ...newDeduction, name: e.target.value })} className="w-full form-input text-sm p-1 border rounded" />
+                                            </div>
+                                            <div className="col-span-2">
+                                                <label className="text-xs font-semibold text-gray-600 mb-1 block">L (m)</label>
+                                                <input type="number" placeholder="0.00" value={newDeduction.l} onChange={e => setNewDeduction({ ...newDeduction, l: parseFloat(e.target.value) })} className="w-full form-input text-sm p-1 border rounded" />
+                                            </div>
+                                            <div className="col-span-2">
+                                                <label className="text-xs font-semibold text-gray-600 mb-1 block">H (m)</label>
+                                                <input type="number" placeholder="0.00" value={newDeduction.h} onChange={e => setNewDeduction({ ...newDeduction, h: parseFloat(e.target.value) })} className="w-full form-input text-sm p-1 border rounded" />
+                                            </div>
+                                            <div className="col-span-2">
+                                                <label className="text-xs font-semibold text-gray-600 mb-1 block">Qty</label>
+                                                <input type="number" placeholder="1" value={newDeduction.count} onChange={e => setNewDeduction({ ...newDeduction, count: parseFloat(e.target.value) })} className="w-full form-input text-sm p-1 border rounded" />
+                                            </div>
+                                            <div className="col-span-2">
+                                                <button type="button" className="btn btn-secondary btn-sm w-full bg-blue-50 text-blue-600 hover:bg-blue-100 border-blue-200" onClick={addDeduction}>+ Add</button>
+                                            </div>
+                                        </div>
+
+                                        {/* Deduction List */}
+                                        {itemForm.deductions && itemForm.deductions.length > 0 && (
+                                            <div className="bg-white border border-gray-200 rounded-md overflow-hidden mt-3">
+                                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
+                                                    <thead style={{ backgroundColor: '#f9fafb', color: '#6b7280', textTransform: 'uppercase', fontSize: '0.75rem', letterSpacing: '0.05em' }}>
+                                                        <tr>
+                                                            <th style={{ padding: '12px 16px', fontWeight: '600', textAlign: 'left', borderBottom: '1px solid #e5e7eb' }}>Name</th>
+                                                            <th style={{ padding: '12px 16px', fontWeight: '600', textAlign: 'left', borderBottom: '1px solid #e5e7eb' }}>Size (L x H)</th>
+                                                            <th style={{ padding: '12px 16px', fontWeight: '600', textAlign: 'center', borderBottom: '1px solid #e5e7eb' }}>Qty</th>
+                                                            <th style={{ padding: '12px 16px', fontWeight: '600', textAlign: 'right', borderBottom: '1px solid #e5e7eb' }}>Action</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {itemForm.deductions.map((d, idx) => (
+                                                            <tr key={idx} style={{ borderBottom: idx === itemForm.deductions.length - 1 ? 'none' : '1px solid #f3f4f6' }}>
+                                                                <td style={{ padding: '12px 16px', color: '#111827', fontWeight: '500' }}>{d.name || <span className="text-gray-400 italic">--</span>}</td>
+                                                                <td style={{ padding: '12px 16px', color: '#4b5563' }}>{d.l}m x {d.h}m</td>
+                                                                <td style={{ padding: '12px 16px', color: '#111827', textAlign: 'center' }}>{d.count}</td>
+                                                                <td style={{ padding: '12px 16px', textAlign: 'right' }}>
+                                                                    <button type="button"
+                                                                        onClick={() => removeDeduction(idx)}
+                                                                        style={{ color: '#ef4444', padding: '4px 8px', borderRadius: '4px', border: 'none', background: 'transparent', cursor: 'pointer' }}
+                                                                        onMouseOver={e => e.currentTarget.style.backgroundColor = '#fef2f2'}
+                                                                        onMouseOut={e => e.currentTarget.style.backgroundColor = 'transparent'}
+                                                                    >
+                                                                        🗑️
+                                                                    </button>
+                                                                </td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="form-row" style={{ width: '100%' }}>
+                                        <div className="form-group"><label>Thickness (mm)</label><input type="number" value={itemForm.thickness || activeEstimation.defaultPlasterThickness || 12} onChange={e => setItemForm({ ...itemForm, thickness: parseFloat(e.target.value) || 0 })} required /></div>
+                                        <div className="form-group">
+                                            <label>Ratio</label>
+                                            <select value={itemForm.ratio || activeEstimation.defaultPlasterRatio || '1:4'} onChange={e => setItemForm({ ...itemForm, ratio: e.target.value })}>
+                                                <option value="1:3">1:3</option>
+                                                <option value="1:4">1:4</option>
+                                                <option value="1:5">1:5</option>
+                                                <option value="1:6">1:6</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div className="form-row" style={{ width: '100%' }}>
+                                        <div className="form-group">
+                                            <label>Wet Volume (m3)</label>
+                                            <input type="number" readOnly value={(() => {
+                                                const area = parseFloat(itemForm.manualArea) || ((itemForm.wallDims?.l || 0) * (itemForm.wallDims?.h || 0));
+                                                const deductionArea = (itemForm.deductions || []).reduce((sum, d) => sum + ((parseFloat(d.l) || 0) * (parseFloat(d.h) || 0) * (parseFloat(d.count) || 0)), 0);
+                                                const netArea = Math.max(0, area - deductionArea);
+                                                const thickness = itemForm.thickness || activeEstimation.defaultPlasterThickness || 12;
+                                                return (netArea * (thickness / 1000)).toFixed(3);
+                                            })()} className="bg-gray-100" />
+                                        </div>
+                                        <div className="form-group">
+                                            <label>Dry Volume (m3)</label>
+                                            <input type="number" readOnly value={(() => {
+                                                const area = parseFloat(itemForm.manualArea) || ((itemForm.wallDims?.l || 0) * (itemForm.wallDims?.h || 0));
+                                                const deductionArea = (itemForm.deductions || []).reduce((sum, d) => sum + ((parseFloat(d.l) || 0) * (parseFloat(d.h) || 0) * (parseFloat(d.count) || 0)), 0);
+                                                const netArea = Math.max(0, area - deductionArea);
+                                                const thickness = itemForm.thickness || activeEstimation.defaultPlasterThickness || 12;
+                                                return ((netArea * (thickness / 1000)) * 1.33).toFixed(3);
+                                            })()} className="bg-gray-100" />
+                                        </div>
+                                    </div>
+                                    <div className="form-actions">
+                                        <button type="submit" className="btn btn-primary">{editingItemIndex !== null ? 'Update Item' : 'Add Item'}</button>
+                                        {editingItemIndex !== null && <button type="button" className="btn btn-secondary" onClick={() => { setEditingItemIndex(null); setItemForm({ description: '', unit: '', quantity: '', rate: '', wallDims: { l: 0, h: 0 }, thickness: 0, ratio: '1:4', manualArea: 0 }); }}>Cancel</button>}
+                                    </div>
+                                </form >
+                            ) : isFlooring ? (
+                                <form onSubmit={handleAddItem} className="item-form">
+                                    <div className="form-row" style={{ width: '100%' }}>
+                                        <div className="form-group grow-2"><label>Description</label><input type="text" required placeholder="e.g. Master Bedroom" value={flooringForm.description} onChange={e => setFlooringForm({ ...flooringForm, description: e.target.value })} /></div>
+                                    </div>
+                                    <div className="form-row" style={{ width: '100%' }}>
+                                        <div className="form-group"><label>Room L (m)</label><input type="number" step="0.01" required value={flooringForm.roomDims.l} onChange={e => setFlooringForm({ ...flooringForm, roomDims: { ...flooringForm.roomDims, l: parseFloat(e.target.value) || 0 } })} /></div>
+                                        <div className="form-group"><label>Room W (m)</label><input type="number" step="0.01" required value={flooringForm.roomDims.w} onChange={e => setFlooringForm({ ...flooringForm, roomDims: { ...flooringForm.roomDims, w: parseFloat(e.target.value) || 0 } })} /></div>
+                                    </div>
+                                    <div className="form-row" style={{ width: '100%' }}>
+                                        <div className="form-group"><label>Calc Area (m2)</label>
+                                            <input
+                                                type="number"
+                                                value={flooringForm.manualArea || (flooringForm.roomDims.l * flooringForm.roomDims.w).toFixed(2)}
+                                                onChange={e => setFlooringForm({ ...flooringForm, manualArea: parseFloat(e.target.value) || '' })}
+                                                className={flooringForm.manualArea ? "bg-white border-blue-500" : "bg-gray-100"}
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="form-actions">
+                                        <button type="submit" className="btn btn-primary">{editingItemIndex !== null ? 'Update Item' : 'Add Item'}</button>
+                                    </div>
+                                </form>
+                            ) : (
+                                <form onSubmit={handleAddItem} className="item-form">
+                                    <div className="form-group grow-2"><label>Description</label><input type="text" required placeholder="e.g. Cement Bags" value={itemForm.description} onChange={e => setItemForm({ ...itemForm, description: e.target.value })} /></div>
+                                    <div className="form-group"><label>Unit</label><input type="text" required placeholder="e.g. Bags" value={itemForm.unit} onChange={e => setItemForm({ ...itemForm, unit: e.target.value })} /></div>
+                                    <div className="form-group"><label>Quantity</label><input type="number" required placeholder="0.00" value={itemForm.quantity} onChange={e => setItemForm({ ...itemForm, quantity: e.target.value })} /></div>
+                                    <div className="form-group"><label>Rate</label><input type="number" required placeholder="0.00" value={itemForm.rate} onChange={e => setItemForm({ ...itemForm, rate: e.target.value })} /></div>
+                                    <div className="form-actions">
+                                        <button type="submit" className="btn btn-primary">{editingItemIndex !== null ? 'Update Item' : 'Add Item'}</button>
+                                        {editingItemIndex !== null && <button type="button" className="btn btn-secondary" onClick={() => { setEditingItemIndex(null); setItemForm({ description: '', unit: '', quantity: '', rate: '', wallDims: { l: 0, h: 0 }, thickness: 0, ratio: '1:4', manualArea: 0 }); }}>Cancel</button>}
+                                    </div>
+                                </form>
+                            )
+                            }
+                        </div >
+                    )}
                     <div className="card items-list-card">
                         <h3>Estimation Items</h3>
                         {activeItems.length === 0 ? <p className="text-muted text-center p-4">No items added yet.</p> : (
@@ -2110,17 +2215,17 @@ const Estimation = ({ onNavigate, pageData, setPageData, currentUser }) => {
                                 <table className="data-table">
                                     <thead>
                                         {isSteel ? (
-                                            <tr><th>Mark</th><th>Description</th><th>Shape</th><th>Dia</th><th>Spacing</th><th>No. Mem</th><th>Bars/Mem</th><th>Total Bars</th><th>Segment Lengths</th><th>Cut Len (m)</th><th>Total Len (m)</th><th>Total Wt (kg)</th><th className="no-print">Actions</th></tr>
+                                            <tr><th>Mark</th><th>Description</th><th>Shape</th><th>Dia</th><th>Spacing</th><th>No. Mem</th><th>Bars/Mem</th><th>Total Bars</th><th>Segment Lengths</th><th>Cut Len (m)</th><th>Total Len (m)</th><th>Total Wt (kg)</th>{canEditCurrent && <th className="no-print">Actions</th>}</tr>
                                         ) : isConcrete ? (
-                                            <tr><th>Description</th><th>Shape</th><th>Dimensions</th><th>1 Item (m3)</th><th>Count</th><th>Quantity (m3)</th><th className="no-print">Actions</th></tr>
+                                            <tr><th>Description</th><th>Shape</th><th>Dimensions</th><th>1 Item (m3)</th><th>Count</th><th>Quantity (m3)</th>{canEditCurrent && <th className="no-print">Actions</th>}</tr>
                                         ) : isMasonry ? (
-                                            <tr><th>Description</th><th>Material</th><th>Wall Dims (L x H x T)</th><th>Deductions</th><th>Mortar</th><th>Count</th><th>Mortar Vol (m3)</th><th className="no-print">Actions</th></tr>
+                                            <tr><th>Description</th><th>Material</th><th>Wall Dims (L x H x T)</th><th>Deductions</th><th>Mortar</th><th>Count</th><th>Mortar Vol (m3)</th>{canEditCurrent && <th className="no-print">Actions</th>}</tr>
                                         ) : isPlaster ? (
-                                            <tr><th>Description</th><th>Dimensions (L x H)</th><th>Deductions</th><th>Thickness (mm)</th><th>Ratio</th><th>Area (m2)</th><th>Volume (m3)</th><th className="no-print">Actions</th></tr>
+                                            <tr><th>Description</th><th>Dimensions (L x H)</th><th>Deductions</th><th>Thickness (mm)</th><th>Ratio</th><th>Area (m2)</th><th>Volume (m3)</th>{canEditCurrent && <th className="no-print">Actions</th>}</tr>
                                         ) : isFlooring ? (
-                                            <tr><th>Description</th><th>Room Dims</th><th>Area (m2)</th><th>Tile Size</th><th>Count (inc. Waste)</th><th>Bedding</th><th>Ratio</th><th>Mortar Vol</th><th className="no-print">Actions</th></tr>
+                                            <tr><th>Description</th><th>Room Dims</th><th>Area (m2)</th><th>Tile Size</th><th>Count (inc. Waste)</th><th>Bedding</th><th>Ratio</th><th>Mortar Vol</th>{canEditCurrent && <th className="no-print">Actions</th>}</tr>
                                         ) : (
-                                            <tr><th>Description</th><th>Unit</th><th>Quantity</th><th>Rate</th><th>Amount</th><th className="no-print">Actions</th></tr>
+                                            <tr><th>Description</th><th>Unit</th><th>Quantity</th><th>Rate</th><th>Amount</th>{canEditCurrent && <th className="no-print">Actions</th>}</tr>
                                         )}
                                     </thead>
                                     <tbody>
@@ -2148,7 +2253,14 @@ const Estimation = ({ onNavigate, pageData, setPageData, currentUser }) => {
                                                         </td>
                                                         <td>{item.dia}</td><td>{item.spacing}</td><td>{item.noMembers}</td><td>{item.barsPerMember}</td>
                                                         <td>{(parseFloat(item.noMembers) || 0) * (parseFloat(item.barsPerMember) || 0)}</td>
-                                                        <td className="text-sm text-muted">{item.dims ? Object.entries(item.dims).map(([k, v]) => `${k}=${v}`).join(', ') : '-'}</td>
+                                                        <td className="text-sm text-muted">
+                                                            {item.dims ?
+                                                                Object.entries(item.dims)
+                                                                    .filter(([k]) => !k.endsWith('_mult'))
+                                                                    .map(([k, v]) => `${k}=${v}`).join(', ')
+                                                                : '-'
+                                                            }
+                                                        </td>
                                                         <td>{parseFloat(item.cuttingLength).toFixed(3)}</td><td>{parseFloat(item.totalLength).toFixed(2)}</td><td>{parseFloat(item.totalWeight).toFixed(2)}</td>
                                                     </>
                                                 ) : isConcrete ? (
@@ -2218,7 +2330,7 @@ const Estimation = ({ onNavigate, pageData, setPageData, currentUser }) => {
                                                         <td>{item.description}</td><td>{item.unit}</td><td>{item.quantity}</td><td>{item.rate}</td><td>{(item.quantity * item.rate).toFixed(2)}</td>
                                                     </>
                                                 )}
-                                                <td className="no-print"><button className="btn-icon" onClick={() => handleEditItem(index)}>✎</button><button className="btn-icon delete" onClick={() => handleDeleteItem(index)}>🗑️</button></td>
+                                                {canEditCurrent && <td className="no-print"><button className="btn-icon" onClick={() => handleEditItem(index)}>✎</button><button className="btn-icon delete" onClick={() => handleDeleteItem(index)}>🗑️</button></td>}
                                             </tr>
                                         ))}
                                     </tbody>
@@ -2858,8 +2970,8 @@ const Estimation = ({ onNavigate, pageData, setPageData, currentUser }) => {
                         <div className="card-footer">
                             <span>{est.items?.length || 0} items</span>
                             <div className="flex gap-2">
-                                {canAdd && <button className="btn-icon" onClick={(e) => { e.stopPropagation(); handleEditEstimation(est); }}>✎</button>}
-                                {canEdit && <button className="btn-icon delete" onClick={(e) => handleDeleteEstimation(e, est._id || est.id)}>🗑️</button>}
+                                {canEditDelete(permission, est.createdAt || est.date) && <button className="btn-icon" onClick={(e) => { e.stopPropagation(); handleEditEstimation(est); }}>✎</button>}
+                                {canEditDelete(permission, est.createdAt || est.date) && <button className="btn-icon delete" onClick={(e) => handleDeleteEstimation(e, est._id || est.id)}>🗑️</button>}
                             </div>
                         </div>
                     </div>

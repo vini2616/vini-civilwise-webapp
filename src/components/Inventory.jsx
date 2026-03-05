@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useData } from '../context/DataContext';
+import { api } from '../services/api';
 import './Inventory.css';
 import { checkPermission, canEnterData, canEditDelete } from '../utils/permissions';
 
@@ -34,6 +35,7 @@ const Inventory = () => {
     // Payment Form State
     const [showPaymentModal, setShowPaymentModal] = useState(false);
     const [newPayment, setNewPayment] = useState({ amount: '', date: new Date().toISOString().split('T')[0], mode: 'Cash' });
+    const [editingWorkIndex, setEditingWorkIndex] = useState(null);
 
     // Setup Wizard State
     const [setupStep, setSetupStep] = useState(1);
@@ -128,13 +130,32 @@ const Inventory = () => {
         if (item.type === 'folder') {
             setCurrentPath(prev => [...prev, item.name]);
         } else {
-            setSelectedFlat(item.data);
+            // Helper to safe parse JSON fields
+            const parseField = (field) => {
+                if (Array.isArray(field)) return field;
+                if (typeof field === 'string') {
+                    try { return JSON.parse(field); } catch (e) { return []; }
+                }
+                return [];
+            };
+
+            const flatData = {
+                ...item.data,
+                paymentHistory: parseField(item.data.paymentHistory),
+                extraWork: parseField(item.data.extraWork),
+                documents: parseField(item.data.documents)
+            };
+            setSelectedFlat(flatData);
             setViewMode('flat-details');
         }
     };
 
     const handleBack = () => {
         if (viewMode === 'flat-details') {
+            // Auto-save on back
+            if (selectedFlat) {
+                updateFlat(selectedFlat); // Save to context/backend
+            }
             setViewMode('folders');
             setSelectedFlat(null);
         } else if (currentPath.length > 0) {
@@ -156,13 +177,13 @@ const Inventory = () => {
         // Level 0: Delete Building
         if (currentPath.length === 0) {
             const building = item.name;
-            flatsToDelete = inventory.filter(f => f.block === building).map(f => f.id);
+            flatsToDelete = inventory.filter(f => f.block === building).map(f => f.id || f._id);
         }
         // Level 1: Delete Floor
         else if (currentPath.length === 1) {
             const building = currentPath[0];
             const floor = item.name;
-            flatsToDelete = inventory.filter(f => f.block === building && f.floor === floor).map(f => f.id);
+            flatsToDelete = inventory.filter(f => f.block === building && f.floor === floor).map(f => f.id || f._id);
         }
 
         if (flatsToDelete.length > 0) {
@@ -179,41 +200,63 @@ const Inventory = () => {
 
     const calculateTotalPaid = (flat) => {
         // If paymentHistory exists, sum it up. Otherwise fallback to legacy paidAmount.
-        if (flat.paymentHistory && flat.paymentHistory.length > 0) {
+        if (Array.isArray(flat.paymentHistory) && flat.paymentHistory.length > 0) {
             return flat.paymentHistory.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
         }
         return Number(flat.paidAmount) || 0;
     };
 
     const calculatePending = (flat) => {
-        const total = Number(flat.totalAmount) || 0;
+        let total = Number(flat.totalAmount) || 0;
+        if (total === 0 && flat.area && flat.rate) {
+            total = Number(flat.area) * Number(flat.rate);
+        }
         const paid = calculateTotalPaid(flat);
         const extra = (flat.extraWork || []).reduce((sum, item) => sum + (Number(item.cost) || 0), 0);
         return total + extra - paid;
     };
 
-    const handleFileUpload = (e, type, index = null) => {
+    const handleFileUpload = async (e, type, index = null) => {
         const file = e.target.files[0];
         if (!file) return;
 
-        // Simulate file upload by storing name and fake URL
-        const fileData = {
-            name: file.name,
-            url: URL.createObjectURL(file),
-            date: new Date().toLocaleDateString()
-        };
+        // Create FormData for upload
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('siteId', selectedFlat.siteId || currentUser.siteId || 1);
+        formData.append('name', file.name);
+        formData.append('type', 'Inventory Proof');
+        formData.append('category', 'inventory_proof');
 
-        if (type === 'document') {
-            setSelectedFlat(prev => ({
-                ...prev,
-                documents: [...(prev.documents || []), fileData]
-            }));
-        } else if (type === 'extraWorkProof' && index !== null) {
-            const updatedExtraWork = [...selectedFlat.extraWork];
-            updatedExtraWork[index].proof = fileData;
-            setSelectedFlat(prev => ({ ...prev, extraWork: updatedExtraWork }));
-        } else if (type === 'newExtraWorkProof') {
-            setNewExtraWork(prev => ({ ...prev, proof: fileData }));
+        try {
+            const uploadedDoc = await api.uploadDocument(currentUser.token, formData);
+
+            if (!uploadedDoc || !uploadedDoc.url) {
+                alert('Upload failed');
+                return;
+            }
+
+            const fileData = {
+                name: file.name,
+                url: uploadedDoc.url,
+                date: new Date().toLocaleDateString()
+            };
+
+            if (type === 'document') {
+                setSelectedFlat(prev => ({
+                    ...prev,
+                    documents: [...(prev.documents || []), fileData]
+                }));
+            } else if (type === 'extraWorkProof' && index !== null) {
+                const updatedExtraWork = [...selectedFlat.extraWork];
+                updatedExtraWork[index].proof = fileData;
+                setSelectedFlat(prev => ({ ...prev, extraWork: updatedExtraWork }));
+            } else if (type === 'newExtraWorkProof') {
+                setNewExtraWork(prev => ({ ...prev, proof: fileData }));
+            }
+        } catch (error) {
+            console.error("Upload error:", error);
+            alert("Failed to upload file");
         }
     };
 
@@ -223,17 +266,55 @@ const Inventory = () => {
             return;
         }
 
-        setSelectedFlat(prev => ({
-            ...prev,
-            extraWork: [...(prev.extraWork || []), {
-                description: newExtraWork.description,
-                cost: Number(newExtraWork.cost),
-                proof: newExtraWork.proof
-            }]
-        }));
+        setSelectedFlat(prev => {
+            const updatedWork = [...(prev.extraWork || [])];
+
+            if (editingWorkIndex !== null) {
+                const original = updatedWork[editingWorkIndex];
+                const workItem = {
+                    description: newExtraWork.description,
+                    cost: Number(newExtraWork.cost),
+                    proof: newExtraWork.proof,
+                    createdAt: original.createdAt || new Date().toISOString()
+                };
+                updatedWork[editingWorkIndex] = workItem;
+            } else {
+                const workItem = {
+                    description: newExtraWork.description,
+                    cost: Number(newExtraWork.cost),
+                    proof: newExtraWork.proof,
+                    createdAt: new Date().toISOString()
+                };
+                updatedWork.push(workItem);
+            }
+
+            return { ...prev, extraWork: updatedWork };
+        });
 
         setNewExtraWork({ description: '', cost: '', proof: null });
+        setEditingWorkIndex(null);
         setShowExtraWorkModal(false);
+    };
+
+    const handleEditWork = (index) => {
+        const work = selectedFlat.extraWork[index];
+        setNewExtraWork({
+            description: work.description,
+            cost: work.cost,
+            proof: work.proof
+        });
+        setEditingWorkIndex(index);
+        setShowExtraWorkModal(true);
+    };
+
+    const handleDeleteWork = (index) => {
+        if (window.confirm('Are you sure you want to delete this extra work item?')) {
+            setSelectedFlat(prev => {
+                const updatedWork = [...(prev.extraWork || [])];
+                updatedWork.splice(index, 1);
+                return { ...prev, extraWork: updatedWork };
+            });
+        }
     };
 
     const handleAddPayment = () => {
@@ -417,7 +498,10 @@ const Inventory = () => {
 
                     <form onSubmit={handleSaveFlatDetails} className="form-section">
                         {/* Basic Info */}
-                        <div className="section-title">Basic Information</div>
+                        <div className="section-title">
+                            Basic Information
+                            {selectedFlat.enteredBy && <span style={{ fontSize: '0.8rem', fontWeight: 'normal', color: '#6b7280', marginLeft: '10px' }}>(Entered by: {selectedFlat.enteredBy}{selectedFlat.editedBy ? `, Edited by: ${selectedFlat.editedBy}` : ''})</span>}
+                        </div>
                         <div className="form-grid">
                             <div className="form-group">
                                 <label>Type</label>
@@ -436,7 +520,15 @@ const Inventory = () => {
                                 <input
                                     type="number"
                                     value={selectedFlat.area}
-                                    onChange={e => setSelectedFlat({ ...selectedFlat, area: e.target.value })}
+                                    onChange={e => {
+                                        const newArea = e.target.value;
+                                        const newTotal = Number(newArea) * Number(selectedFlat.rate || 0);
+                                        setSelectedFlat({
+                                            ...selectedFlat,
+                                            area: newArea,
+                                            totalAmount: newTotal
+                                        });
+                                    }}
                                 />
                             </div>
                             <div className="form-group">
@@ -444,7 +536,15 @@ const Inventory = () => {
                                 <input
                                     type="number"
                                     value={selectedFlat.rate}
-                                    onChange={e => setSelectedFlat({ ...selectedFlat, rate: e.target.value })}
+                                    onChange={e => {
+                                        const newRate = e.target.value;
+                                        const newTotal = Number(selectedFlat.area || 0) * Number(newRate);
+                                        setSelectedFlat({
+                                            ...selectedFlat,
+                                            rate: newRate,
+                                            totalAmount: newTotal
+                                        });
+                                    }}
                                 />
                             </div>
                             <div className="form-group">
@@ -526,7 +626,7 @@ const Inventory = () => {
                                             <div className="payment-summary">
                                                 <div className="amount-box total">
                                                     <div className="amount-label">Total Deal Value</div>
-                                                    <div className="amount-value">₹{Number(selectedFlat.totalAmount).toLocaleString()}</div>
+                                                    <div className="amount-value">₹{Number(selectedFlat.totalAmount || (Number(selectedFlat.area) * Number(selectedFlat.rate)) || 0).toLocaleString()}</div>
                                                 </div>
                                                 <div className="amount-box paid">
                                                     <div className="amount-label">Amount Paid</div>
@@ -589,7 +689,11 @@ const Inventory = () => {
                                                     <label style={{ fontWeight: '600', color: '#374151' }}>Extra Work / Changes</label>
                                                     <button
                                                         type="button"
-                                                        onClick={() => setShowExtraWorkModal(true)}
+                                                        onClick={() => {
+                                                            setNewExtraWork({ description: '', cost: '', proof: null });
+                                                            setEditingWorkIndex(null);
+                                                            setShowExtraWorkModal(true);
+                                                        }}
                                                         className="add-item-btn"
                                                     >
                                                         + Add Item
@@ -597,14 +701,29 @@ const Inventory = () => {
                                                 </div>
                                                 <div className="extra-work-list">
                                                     {(selectedFlat.extraWork || []).map((work, idx) => (
-                                                        <div key={idx} className="extra-work-item" style={{ flexDirection: 'column', gap: '8px' }}>
-                                                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                                <span>{work.description}</span>
-                                                                <span style={{ fontWeight: '600' }}>₹{work.cost}</span>
+                                                        <div key={idx} className="extra-work-item" style={{ flexDirection: 'column', gap: '8px', position: 'relative' }}>
+                                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                                                                <div>
+                                                                    <div style={{ fontWeight: '500' }}>{work.description}</div>
+                                                                    <div style={{ fontWeight: '600' }}>₹{Number(work.cost).toLocaleString()}</div>
+                                                                </div>
+                                                                <div style={{ display: 'flex', gap: '8px' }}>
+                                                                    {canEditDelete(permission, work.createdAt) && <button type="button" onClick={() => handleEditWork(idx)} style={{ fontSize: '16px', background: 'none', border: 'none', cursor: 'pointer' }} title="Edit">✏️</button>}
+                                                                    {canEditDelete(permission, work.createdAt) && <button type="button" onClick={() => handleDeleteWork(idx)} style={{ fontSize: '16px', background: 'none', border: 'none', cursor: 'pointer', color: 'red' }} title="Delete">🗑️</button>}
+                                                                </div>
                                                             </div>
                                                             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '12px' }}>
                                                                 {work.proof ? (
-                                                                    <span style={{ color: '#166534' }}>✓ Proof: {work.proof.name}</span>
+                                                                    <span style={{ color: '#166534' }}>
+                                                                        ✓ Proof: <a
+                                                                            href={work.proof.url.startsWith('http') ? work.proof.url : `${import.meta.env.VITE_API_URL}${work.proof.url}`}
+                                                                            target="_blank"
+                                                                            rel="noopener noreferrer"
+                                                                            style={{ color: '#2563eb', textDecoration: 'underline' }}
+                                                                        >
+                                                                            {work.proof.name}
+                                                                        </a>
+                                                                    </span>
                                                                 ) : (
                                                                     <span style={{ color: '#991b1b' }}>No Proof</span>
                                                                 )}
@@ -630,7 +749,7 @@ const Inventory = () => {
                             >
                                 Cancel
                             </button>
-                            {canEdit && (
+                            {canAdd && (
                                 <button
                                     type="submit"
                                     className="btn-primary"
@@ -645,7 +764,9 @@ const Inventory = () => {
                     {showExtraWorkModal && (
                         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             <div className="bg-white p-6 rounded-lg shadow-xl w-96" style={{ background: 'white', padding: '24px', borderRadius: '12px', width: '400px' }}>
-                                <h3 className="text-lg font-bold mb-4" style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '16px' }}>Add Extra Work</h3>
+                                <h3 className="text-lg font-bold mb-4" style={{ fontSize: '18px', fontWeight: 'bold', marginBottom: '16px' }}>
+                                    {editingWorkIndex !== null ? 'Edit Extra Work' : 'Add Extra Work'}
+                                </h3>
 
                                 <div className="mb-4" style={{ marginBottom: '16px' }}>
                                     <label className="block text-sm font-medium mb-1" style={{ display: 'block', marginBottom: '4px' }}>Description</label>
@@ -677,13 +798,23 @@ const Inventory = () => {
                                         <input
                                             type="file"
                                             id="new-work-proof"
+                                            accept="image/*"
                                             style={{ display: 'none' }}
                                             onChange={(e) => handleFileUpload(e, 'newExtraWorkProof')}
                                         />
                                         <label htmlFor="new-work-proof" className="btn-secondary" style={{ padding: '4px 8px', fontSize: '12px', cursor: 'pointer' }}>
-                                            Upload File
+                                            Upload Image Proof
                                         </label>
-                                        {newExtraWork.proof && <span style={{ fontSize: '12px' }}>{newExtraWork.proof.name}</span>}
+                                        {newExtraWork.proof && (
+                                            <a
+                                                href={newExtraWork.proof.url.startsWith('http') ? newExtraWork.proof.url : `${import.meta.env.VITE_API_URL}${newExtraWork.proof.url}`}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                style={{ fontSize: '12px', color: '#2563eb', textDecoration: 'underline' }}
+                                            >
+                                                {newExtraWork.proof.name}
+                                            </a>
+                                        )}
                                     </div>
                                 </div>
 
@@ -700,7 +831,7 @@ const Inventory = () => {
                                         className="btn-primary"
                                         style={{ padding: '8px 16px' }}
                                     >
-                                        Add Item
+                                        {editingWorkIndex !== null ? 'Update Item' : 'Add Item'}
                                     </button>
                                 </div>
                             </div>

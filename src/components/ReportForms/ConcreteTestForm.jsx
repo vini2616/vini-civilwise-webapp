@@ -43,7 +43,7 @@ const ConcreteTestForm = ({ onBack, initialData }) => {
         if (initialData && (initialData._id || initialData.id)) {
             const id = initialData._id || initialData.id;
             // Merge existing data just in case, though form should have it all
-            result = await updateConcreteTest(id, formData);
+            result = await updateConcreteTest({ ...formData, id });
         } else {
             result = await addConcreteTest(formData);
         }

@@ -108,14 +108,26 @@ const ManPower = ({ currentUser }) => {
     // --- Attendance Functions ---
     const getAttendanceStatus = (id, date) => {
         const dailyDoc = manpowerAttendance.find(d => d.date === date);
-        if (!dailyDoc || !dailyDoc.records) return { status: '', overtime: 0 };
-        const record = dailyDoc.records.find(r => (r.manpowerId === id || (r.manpowerId && r.manpowerId._id === id)));
+        let records = [];
+        if (dailyDoc && dailyDoc.records) {
+            if (Array.isArray(dailyDoc.records)) records = dailyDoc.records;
+            else if (typeof dailyDoc.records === 'string') {
+                try { records = JSON.parse(dailyDoc.records); } catch (e) { records = []; }
+            }
+        }
+        const record = records.find(r => (r.manpowerId === id || (r.manpowerId && r.manpowerId._id === id)));
         return record ? record : { status: '', overtime: 0 };
     };
 
     const updateAttendance = async (id, field, value) => {
         const dailyDoc = manpowerAttendance.find(d => d.date === selectedDate);
-        let records = dailyDoc ? [...dailyDoc.records] : [];
+        let records = [];
+        if (dailyDoc && dailyDoc.records) {
+            if (Array.isArray(dailyDoc.records)) records = [...dailyDoc.records];
+            else if (typeof dailyDoc.records === 'string') {
+                try { records = JSON.parse(dailyDoc.records); } catch (e) { records = []; }
+            }
+        }
 
         const workerIndex = records.findIndex(r => (r.manpowerId === id || (r.manpowerId && r.manpowerId._id === id)));
         if (workerIndex >= 0) {
@@ -155,11 +167,16 @@ const ManPower = ({ currentUser }) => {
         // Flatten attendance from daily docs to records for this person
         let myAttendance = [];
         manpowerAttendance.forEach(day => {
-            if (day.records) {
-                const rec = day.records.find(r => r.manpowerId === id || (r.manpowerId && r.manpowerId._id === id));
+            let records = day.records;
+            if (typeof records === 'string') {
+                try { records = JSON.parse(records); } catch (e) { records = []; }
+            }
+            if (records && Array.isArray(records)) {
+                const rec = records.find(r => r.manpowerId === id || (r.manpowerId && r.manpowerId._id === id));
                 if (rec) myAttendance.push(rec);
             }
         });
+
 
         const daysWorked = myAttendance.reduce((sum, a) => {
             if (a.status === 'P') return sum + 1;
@@ -213,7 +230,11 @@ const ManPower = ({ currentUser }) => {
                             <tbody>
                                 {manpowerList.map(item => (
                                     <tr key={item.id || item._id}>
-                                        <td><div className="font-medium">{item.name}</div></td>
+                                        <td>
+                                            <div className="font-medium">{item.name}</div>
+                                            {item.enteredBy && <div className="text-xs text-muted">Created by: {item.enteredBy}</div>}
+                                            {item.editedBy && <div className="text-xs text-muted">Edited by: {item.editedBy}</div>}
+                                        </td>
                                         <td><span className={`badge ${item.type.toLowerCase()}`}>{item.type}</span></td>
                                         <td>{item.trade}</td>
                                         <td>₹{item.rate}</td>
@@ -238,7 +259,14 @@ const ManPower = ({ currentUser }) => {
                     <div className="date-selector-card">
                         <div className="date-selector-wrapper">
                             <label>📅 Select Date</label>
-                            <input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="premium-date-input" />
+                            <input
+                                type="date"
+                                value={selectedDate}
+                                onChange={(e) => setSelectedDate(e.target.value)}
+                                className="premium-date-input"
+                                disabled={permission === 'data_entry'}
+                                title={permission === 'data_entry' ? "Data Entry user cannot change date" : "Select Date"}
+                            />
                         </div>
                         <div className="attendance-stats">
                             <div className="stat-item">
@@ -388,7 +416,7 @@ const ManPower = ({ currentUser }) => {
                                         </div>
                                         <div className="flex items-center gap-3">
                                             <div className="text-success font-bold">₹{p.amount}</div>
-                                            {canDelete && <button onClick={() => deletePayment(p.id || p._id)} className="btn-icon text-danger" title="Delete Payment">🗑️</button>}
+                                            {canEditDelete(permission, p.createdAt) && <button onClick={() => deletePayment(p.id || p._id)} className="btn-icon text-danger" title="Delete Payment">🗑️</button>}
                                         </div>
                                     </div>
                                 );

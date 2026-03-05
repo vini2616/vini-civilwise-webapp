@@ -16,7 +16,8 @@ const Materials = () => {
 
     // Filter materials for active site
     const siteMaterials = useMemo(() => {
-        return materials.filter(m => m.siteId === activeSite);
+        // eslint-disable-next-line eqeqeq
+        return materials.filter(m => m.siteId == activeSite);
     }, [materials, activeSite]);
 
     // Calculate Stock Summary
@@ -60,7 +61,7 @@ const Materials = () => {
                 {activeTab === 'summary' && <StockSummary summary={stockSummary} />}
                 {activeTab === 'inward' && canAdd && <InwardForm onAdd={addMaterialTransaction} existingMaterials={stockSummary.map(s => s.name)} savedSuppliers={savedSuppliers} onAddSupplier={addSavedSupplier} savedMaterialNames={savedMaterialNames} onAddMaterial={addSavedMaterialName} contacts={contacts} addContact={addContact} savedUnits={savedUnits} addSavedUnit={addSavedUnit} />}
                 {activeTab === 'outward' && canAdd && <OutwardForm onAdd={addMaterialTransaction} availableStock={stockSummary} savedUnits={savedUnits} addSavedUnit={addSavedUnit} />}
-                {activeTab === 'history' && <HistoryLog transactions={siteMaterials} onDelete={deleteMaterialTransaction} onEdit={updateMaterialTransaction} savedSuppliers={savedSuppliers} canEdit={canEdit} />}
+                {activeTab === 'history' && <HistoryLog transactions={siteMaterials} onDelete={deleteMaterialTransaction} onEdit={updateMaterialTransaction} savedSuppliers={savedSuppliers} permission={permission} />}
             </div>
 
             <style>{`
@@ -348,26 +349,34 @@ const OutwardForm = ({ onAdd, availableStock, savedUnits, addSavedUnit }) => {
         }
     }, [formData.materialName, availableStock]);
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
-        // Validation: Check if requested quantity > stock (convert units if needed? No, assumes same unit for now)
+
+        // Validation: Check if requested quantity > stock
         if (selectedMaterial && Number(formData.quantity) > selectedMaterial.quantity) {
-            // Optional: Allow override or warning. For now, strict check.
-            // But if units differ (e.g. Kg vs Bags), this check might be wrong. 
-            // Ideally we should warn but allow if units differ.
-            // For safety, let's keep it strict but maybe user changes unit to match stock?
+            const confirm = window.confirm(`Warning: Insufficient Stock! Available: ${selectedMaterial.quantity} ${selectedMaterial.unit}. Do you want to proceed anyway?`);
+            if (!confirm) return;
         }
 
-        // Strict check only if units match or logic is simple.
-        // Let's rely on simple numeric check for now.
-        if (selectedMaterial && Number(formData.quantity) > selectedMaterial.quantity) {
-            alert(`Warning: Insufficient Stock! Available: ${selectedMaterial.quantity} ${selectedMaterial.unit}`);
-            return;
-        }
+        try {
+            const payload = {
+                ...formData,
+                name: formData.materialName, // Schema requires 'name'
+                type: 'outward',
+                quantity: Number(formData.quantity)
+            };
 
-        onAdd({ ...formData, type: 'outward' }); // formData includes unit
-        alert('Material Deducted Successfully!');
-        setFormData({ ...formData, quantity: '', usedFor: '', notes: '' });
+            const res = await onAdd(payload);
+            if (res && res.success) {
+                alert('Material Deducted Successfully!');
+                setFormData({ ...formData, quantity: '', usedFor: '', notes: '' });
+            } else {
+                alert('Failed to save: ' + (res?.message || 'Unknown Error'));
+            }
+        } catch (error) {
+            console.error("Save error:", error);
+            alert('Error saving material');
+        }
     };
 
     return (
@@ -422,7 +431,7 @@ const OutwardForm = ({ onAdd, availableStock, savedUnits, addSavedUnit }) => {
     );
 };
 
-const HistoryLog = ({ transactions, onDelete, onEdit, savedSuppliers, canEdit }) => {
+const HistoryLog = ({ transactions, onDelete, onEdit, savedSuppliers, permission }) => {
     const [editingTransaction, setEditingTransaction] = useState(null);
 
     const viewImage = (img) => {
@@ -479,7 +488,7 @@ const HistoryLog = ({ transactions, onDelete, onEdit, savedSuppliers, canEdit })
                                 ) : '-'}
                             </td>
                             <td>
-                                {canEdit && (
+                                {canEditDelete(permission, t.createdAt) && (
                                     <div className="flex gap-2">
                                         <button onClick={() => handleEditClick(t)} className="btn-icon">✏️</button>
                                         <button onClick={() => { if (window.confirm('Delete?')) onDelete(t._id || t.id) }} className="btn-danger" style={{ padding: '4px 8px', fontSize: '0.8rem' }}>🗑️</button>

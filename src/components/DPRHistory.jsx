@@ -1,68 +1,118 @@
 import React, { useState, useEffect } from 'react';
 import { generateDPRPDF, generateDetailedHistoryPDF } from '../utils/pdfGenerator';
 import { generateHistoryCSV } from '../utils/exportUtils';
+import { api } from '../services/api';
 
 import { useData } from '../context/DataContext';
 
 import { firestoreService } from '../services/firestoreService';
 
 const DPRHistory = ({ onNavigate, currentUser }) => {
-    const { activeSite, dprs, deleteDPR } = useData();
+    const { activeSite, dprs, deleteDPR, sites } = useData();
     const [history, setHistory] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
 
     useEffect(() => {
         if (dprs) {
+            // Find current site name fallback
+            const currentSiteObj = sites?.find(s => s.id === activeSite || s._id === activeSite);
+            const fallbackProjectName = currentSiteObj ? currentSiteObj.name : 'Unknown Project';
+
             // Map backend DPRs to history format
             const formattedHistory = dprs.map(d => {
-                // Helper to check if array has meaningful data
-                const hasData = (arr, fields) => {
-                    if (!arr || arr.length === 0) return false;
-                    return arr.some(item => fields.some(field => item[field] && item[field].toString().trim() !== ''));
+                // Safe Parser Helpers
+                const safeData = (arr, defaultValue = []) => {
+                    if (!arr) return defaultValue;
+                    if (Array.isArray(arr)) return arr;
+                    try {
+                        const parsed = JSON.parse(arr);
+                        return Array.isArray(parsed) ? parsed : defaultValue;
+                    } catch { return defaultValue; }
+                };
+                const safeObj = (obj, defaultValue = {}) => {
+                    if (!obj) return defaultValue;
+                    if (typeof obj === 'object') return obj;
+                    try {
+                        return JSON.parse(obj) || defaultValue;
+                    } catch { return defaultValue; }
                 };
 
-                const hasMorningData = hasData(d.manpower, ['trade', 'contractor', 'note']) ||
-                    hasData(d.workStarted, ['description', 'location', 'note']);
+                // Helper to check if array has meaningful data
+                const hasData = (arr, fields) => {
+                    if (!arr || !Array.isArray(arr) || arr.length === 0) return false;
+                    return arr.some(item => item && fields.some(field => {
+                        const val = item[field];
+                        if (val === null || val === undefined) return false;
+                        const str = val.toString().trim();
+                        // Ignore empty strings and "0" (since default numeric fields are 0)
+                        return str !== '' && str !== '0';
+                    }));
+                };
 
-                const hasEveningData = hasData(d.work, ['desc', 'grid', 'qty']) ||
-                    hasData(d.materials, ['name', 'supplier', 'qty']) ||
-                    hasData(d.reconciliation, ['item', 'theory', 'actual']) ||
-                    hasData(d.equipment, ['name', 'qty']);
+                // Safely parse all relevant fields
+                const manpower = safeData(d.manpower);
+                const workStarted = safeData(d.workStarted);
+                const work = safeData(d.work);
+                const materials = safeData(d.materials);
+                const reconciliation = safeData(d.reconciliation);
+                const equipment = safeData(d.equipment);
+                const projectInfo = safeObj(d.projectInfo, {});
 
+                const hasMorningData = hasData(manpower, ['trade', 'contractor', 'note', 'skilled', 'unskilled', 'total']) ||
+                    hasData(workStarted, ['description', 'location', 'note']);
+
+                const hasEveningData = hasData(work, ['description', 'desc', 'quantity', 'qty', 'progress', 'location', 'note']) ||
+                    hasData(materials, ['quantity', 'qty', 'received', 'consumed', 'name', 'unit', 'note']) ||
+                    hasData(reconciliation, ['theory', 'actual', 'diff', 'item', 'unit', 'note']) ||
+                    hasData(equipment, ['hours', 'fuel', 'name', 'note']);
+
+                const hasPhotos = d.photos && d.photos.length > 0;
+
+                // Calculate display type (legacy support + dual badges)
                 let type = 'DPR';
                 if (hasMorningData && !hasEveningData) {
                     type = 'Morning Report';
                 } else if (hasEveningData && !hasMorningData) {
                     type = 'Evening Report';
-                } else if (hasMorningData && hasEveningData) {
-                    type = 'DPR';
-                } else {
-                    // If both are empty, it might be a draft or just created. Default to DPR or check time?
-                    // Let's stick to DPR for now.
-                    type = 'DPR';
                 }
 
                 return {
-                    id: d._id,
-                    dprNo: d.projectInfo.dprNo,
-                    date: d.projectInfo.date,
-                    project: d.projectInfo.projectName,
-                    type: type,
-                    data: d, // The full DPR object
+                    id: d._id || d.id,
+                    dprNo: projectInfo.dprNo,
+                    date: projectInfo.date,
+                    project: projectInfo.projectName || fallbackProjectName,
+                    type: type, // Keep for legacy if needed
+                    hasMorning: hasMorningData,
+                    hasEvening: hasEveningData,
+                    data: {
+                        ...d,
+                        manpower, workStarted, work, materials, reconciliation, equipment, projectInfo
+                    },
                     photos: d.photos || []
                 };
             });
             setHistory(formattedHistory);
         }
-    }, [dprs]);
+    }, [dprs, sites, activeSite]);
 
-    // Debug Permissions
-    console.log('DPRHistory CurrentUser:', currentUser);
-    console.log('Is Admin?', currentUser?.role === 'Owner' || currentUser?.role === 'Admin' || currentUser?.role === 'Partner' || currentUser?.permission === 'full_control');
+    const handleLoad = async (item) => {
+        let fullPhotos = item.photos || [];
+        let fullSignatures = item.data.signatures || {};
 
-    const handleLoad = (item) => {
+        if (!fullPhotos.length || !fullSignatures.preparedBy) {
+            try {
+                const fullDPR = await api.getDPRById(currentUser.token, item.id);
+                if (fullDPR) {
+                    fullPhotos = fullDPR.photos || [];
+                    fullSignatures = fullDPR.signatures || {};
+                }
+            } catch (e) {
+                console.error("Failed to fetch full DPR", e);
+            }
+        }
+
         // Force update localStorage and navigate
-        const dataToSave = { ...item.data, id: item.id, type: item.type };
+        const dataToSave = { ...item.data, id: item.id, type: item.type, photos: fullPhotos, signatures: fullSignatures };
         localStorage.setItem(`vini_dpr_data_${activeSite}`, JSON.stringify(dataToSave));
         // Small delay to ensure storage is written before component mount
         setTimeout(() => {
@@ -70,8 +120,22 @@ const DPRHistory = ({ onNavigate, currentUser }) => {
         }, 50);
     };
 
-    const handleViewPDF = (item) => {
-        generateDPRPDF(item.data, item.photos || [], 'view');
+    const handleViewPDF = async (item) => {
+        let pdfData = { ...item.data };
+        let pdfPhotos = item.photos || [];
+
+        if (!pdfPhotos.length || !pdfData.signatures?.preparedBy) {
+            try {
+                const fullDPR = await api.getDPRById(currentUser.token, item.id);
+                if (fullDPR) {
+                    pdfPhotos = fullDPR.photos || [];
+                    pdfData.signatures = fullDPR.signatures || {};
+                }
+            } catch (e) {
+                console.error("Failed to fetch full DPR for PDF", e);
+            }
+        }
+        generateDPRPDF(pdfData, pdfPhotos, 'view');
     };
 
     const handleDelete = async (id) => {
@@ -163,14 +227,29 @@ const DPRHistory = ({ onNavigate, currentUser }) => {
                                             <span>📅 {item.date}</span>
                                             <span className="separator">|</span>
                                             <span>🏗️ {item.project || 'Unknown Project'}</span>
-                                            {item.type && (
-                                                <>
-                                                    <span className="separator">|</span>
-                                                    <span className={`badge ${item.type === 'Morning Report' ? 'badge-morning' : item.type === 'Evening Report' ? 'badge-evening' : 'badge-dpr'}`}>
-                                                        {item.type === 'Morning Report' ? '🌅 Morning' : item.type === 'Evening Report' ? '🌇 Evening' : '📄 DPR'}
+                                            <span className="separator">|</span>
+                                            <div className="flex gap-2">
+                                                {item.hasMorning && (
+                                                    <span className="badge badge-morning">
+                                                        🌅 Morning
                                                     </span>
-                                                </>
-                                            )}
+                                                )}
+                                                {item.hasEvening && (
+                                                    <span className="badge badge-evening">
+                                                        🌇 Evening
+                                                    </span>
+                                                )}
+                                                {!item.hasMorning && !item.hasEvening && item.photos?.length > 0 && (
+                                                    <span className="badge badge-dpr" style={{ background: '#e0f2fe', color: '#0369a1', border: '1px solid #bae6fd' }}>
+                                                        📷 Photos Only
+                                                    </span>
+                                                )}
+                                                {!item.hasMorning && !item.hasEvening && (!item.photos || item.photos.length === 0) && (
+                                                    <span className="badge badge-dpr">
+                                                        📄 Empty
+                                                    </span>
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
                                 </div>

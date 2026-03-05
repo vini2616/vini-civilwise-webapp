@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { useData } from '../context/DataContext';
+import { checkPermission, canEditDelete, canEnterData } from '../utils/permissions';
 
 
 
 const TestList = ({ type, onNavigate, onEnterResult, onEdit }) => {
-    const { concreteTests, steelTests, brickTests, deleteConcreteTest, deleteSteelTest, deleteBrickTest } = useData();
+    const { concreteTests, steelTests, brickTests, deleteConcreteTest, deleteSteelTest, deleteBrickTest, currentUser } = useData();
+    const permission = checkPermission(currentUser, 'report');
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState('All');
 
@@ -65,9 +67,11 @@ const TestList = ({ type, onNavigate, onEnterResult, onEdit }) => {
                     <h1>{icon} {title}</h1>
                     <p className="text-muted">Manage and track your quality control tests.</p>
                 </div>
-                <button className="btn btn-primary btn-lg shadow-md" onClick={() => onNavigate(`add-${type}`)}>
-                    + Add New Test
-                </button>
+                {canEnterData(permission) && (
+                    <button className="btn btn-primary btn-lg shadow-md" onClick={() => onNavigate(`add-${type}`)}>
+                        + Add New Test
+                    </button>
+                )}
             </div>
 
             {/* Filters */}
@@ -100,6 +104,14 @@ const TestList = ({ type, onNavigate, onEnterResult, onEdit }) => {
                 {filteredData.length > 0 ? (
                     filteredData.map(item => {
                         const itemId = item.id || item._id;
+                        // Determine safe data object (handle if data is JSON string)
+                        let safeData = {};
+                        try {
+                            safeData = typeof item.data === 'string' ? JSON.parse(item.data) : (item.data || {});
+                        } catch (e) {
+                            console.error("Failed to parse report data", e);
+                            safeData = {};
+                        }
                         return (
                             <div key={itemId} className="test-card card">
                                 <div className="card-header-row">
@@ -108,8 +120,12 @@ const TestList = ({ type, onNavigate, onEnterResult, onEdit }) => {
                                     </span>
 
                                     <div className="card-actions">
-                                        <button className="btn-icon-sm" onClick={() => onEdit && onEdit(item)} title="Edit">✏️</button>
-                                        <button className="btn-icon-sm delete" onClick={() => handleDelete(itemId)} title="Delete">🗑️</button>
+                                        {canEditDelete(permission, item.createdAt) && (
+                                            <>
+                                                <button className="btn-icon-sm" onClick={() => onEdit && onEdit(item)} title="Edit">✏️</button>
+                                                <button className="btn-icon-sm delete" onClick={() => handleDelete(itemId)} title="Delete">🗑️</button>
+                                            </>
+                                        )}
                                     </div>
                                 </div>
 
@@ -123,19 +139,19 @@ const TestList = ({ type, onNavigate, onEnterResult, onEdit }) => {
                                     {type === 'concrete' && (
                                         <div className="detail-item">
                                             <span className="label">Grade</span>
-                                            <span className="value">{item.data?.grade || item.grade}</span>
+                                            <span className="value">{safeData.grade || item.grade}</span>
                                         </div>
                                     )}
                                     {type === 'steel' && (
                                         <div className="detail-item">
                                             <span className="label">Diameter</span>
-                                            <span className="value">{item.data?.diameter || item.diameter}mm</span>
+                                            <span className="value">{safeData.diameter || item.diameter}mm</span>
                                         </div>
                                     )}
                                     {type === 'brick' && (
                                         <div className="detail-item">
                                             <span className="label">Type</span>
-                                            <span className="value">{item.data?.blockType || item.blockType}</span>
+                                            <span className="value">{safeData.blockType || item.blockType}</span>
                                         </div>
                                     )}
                                 </div>
@@ -148,21 +164,30 @@ const TestList = ({ type, onNavigate, onEnterResult, onEdit }) => {
                                             if (item.dates && item.dates[day]) {
                                                 targetDate = new Date(item.dates[day]);
                                             } else {
-                                                const castingDate = new Date(item.date || item.data?.castingDate || item.castingDate);
+                                                const castingDate = new Date(item.date || safeData.castingDate || item.castingDate);
                                                 const daysToAdd = day === 'day7' ? 7 : day === 'day14' ? 14 : 28;
                                                 targetDate = new Date(castingDate);
                                                 targetDate.setDate(castingDate.getDate() + daysToAdd);
                                             }
 
-                                            const isDone = item.data?.results && item.data.results[day]?.status;
-                                            const isPass = isDone && item.data.results[day].status === 'Pass';
+                                            const isDone = safeData.results && safeData.results[day]?.status;
+                                            const isPass = isDone && safeData.results[day].status === 'Pass';
+
+                                            const isLocked = permission === 'data_entry' && isDone;
 
                                             return (
                                                 <button
                                                     key={day}
                                                     className={`date-pill ${isDone ? (isPass ? 'pill-pass' : 'pill-fail') : ''}`}
-                                                    onClick={() => onEnterResult && onEnterResult(item, day)}
-                                                    title="Click to enter results"
+                                                    onClick={() => {
+                                                        if (isLocked) {
+                                                            alert("Data Entry users cannot edit submitted test results.");
+                                                            return;
+                                                        }
+                                                        onEnterResult && onEnterResult(item, day);
+                                                    }}
+                                                    title={isLocked ? "Cannot edit submitted result" : "Click to enter results"}
+                                                    style={isLocked ? { cursor: 'not-allowed', opacity: 0.8 } : {}}
                                                 >
                                                     <span className="pill-label">{day.replace('day', '')}d:</span>
                                                     <span className="pill-date">{targetDate.getDate()}/{targetDate.getMonth() + 1}</span>

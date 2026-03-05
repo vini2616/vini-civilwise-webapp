@@ -1,8 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useData } from '../context/DataContext';
+import { checkPermission, canEditDelete } from '../utils/permissions';
 
 const Chat = ({ currentUser }) => {
     const { messages, addMessage, updateMessage, deleteMessage } = useData();
+    const permission = checkPermission(currentUser, 'chat'); // Check permission
     const [inputText, setInputText] = useState('');
     const [isRecording, setIsRecording] = useState(false);
     const [editingMessageId, setEditingMessageId] = useState(null);
@@ -188,10 +190,12 @@ const Chat = ({ currentUser }) => {
                                     {formatTime(msg.timestamp)}
                                     {isMe && (
                                         <div className="message-actions">
-                                            {msg.type === 'text' && (
+                                            {msg.type === 'text' && canEditDelete(permission) && (
                                                 <button onClick={() => handleEdit({ ...msg, id: msgId })} className="action-btn" title="Edit">✏️</button>
                                             )}
-                                            <button onClick={() => handleDelete(msgId)} className="action-btn" title="Delete">🗑️</button>
+                                            {canEditDelete(permission) && (
+                                                <button onClick={() => handleDelete(msgId)} className="action-btn" title="Delete">🗑️</button>
+                                            )}
                                         </div>
                                     )}
                                 </div>

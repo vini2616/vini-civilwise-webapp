@@ -32,14 +32,14 @@ const DPR = ({ onNavigate, currentUser }) => {
 
     // ... (permissions logic unchanged) ...
     const canAdd = canEnterData(permission);
-    const canEditHistory = canEditDelete(permission);
-    const canDelete = canEditDelete(permission);
-    const canDownload = canEnterData(permission);
+    // Determine if the currently loaded report can be edited
+    // New reports (no ID) are always editable if permission allows adding
+    // Existing reports are editable only if they are recent enough for data_entry users
 
-    const isViewOnly = !canAdd;
-    const canEdit = !isViewOnly;
+
+
     // Strict Owner-only permission for deleting dropdown items
-    const canDeleteDropdown = currentUser?.role === 'Owner';
+    const canDeleteDropdown = currentUser?.role === 'Owner' || currentUser?.permission === 'full_control';
 
     const initialState = {
         id: null,
@@ -56,6 +56,14 @@ const DPR = ({ onNavigate, currentUser }) => {
     };
 
     const [data, setData] = useState(initialState);
+
+    const reportCreatedAt = data?.createdAt || data?.timestamp;
+    const canEditReport = !currentId ? true : canEditDelete(permission, reportCreatedAt);
+
+    const isViewOnly = !canAdd || !canEditReport;
+    const canEdit = !isViewOnly;
+    const canDelete = canEdit; // If you can edit the report, you can delete rows
+    const canDownload = canAdd; // Allow download if you can access data entry
     const [activeTab, setActiveTab] = useState('morning');
 
     const [vendors, setVendors] = useState([]);
@@ -70,7 +78,7 @@ const DPR = ({ onNavigate, currentUser }) => {
             // Map backend DPRs to history format if needed, or just use directly
             // Backend DPR structure matches frontend mostly, but let's ensure compatibility
             const formattedHistory = dprs.map(d => ({
-                id: d._id,
+                id: d._id || d.id,
                 date: d.projectInfo.date,
                 project: d.projectInfo.projectName,
                 data: d, // The full DPR object
@@ -107,35 +115,81 @@ const DPR = ({ onNavigate, currentUser }) => {
             const saved = localStorage.getItem(STORAGE_KEY_DATA);
             if (saved) {
                 const parsed = JSON.parse(saved);
+                const currentSiteObj = sites?.find(s => s.id === activeSite || s._id === activeSite);
+                const properProjectName = currentSiteObj ? currentSiteObj.name : '';
+                const properLocation = currentSiteObj ? currentSiteObj.location : '';
+
+                // Helper to safely parse potential JSON strings
+                const safeParse = (val, fallback) => {
+                    if (!val) return fallback;
+                    if (typeof val === 'string') {
+                        try {
+                            const result = JSON.parse(val);
+                            return result || fallback;
+                        } catch (e) {
+                            return fallback;
+                        }
+                    }
+                    return val;
+                };
+
+                const loadedProjectInfo = safeParse(parsed.projectInfo, {});
+
                 setData({
                     ...initialState,
                     ...parsed,
-                    projectInfo: { ...initialState.projectInfo, ...(parsed.projectInfo || {}) },
-                    manpower: parsed.manpower || initialState.manpower,
-                    workStarted: parsed.workStarted || initialState.workStarted,
-                    equipment: parsed.equipment || initialState.equipment,
-                    materials: parsed.materials || initialState.materials,
-                    work: parsed.work || initialState.work,
-                    reconciliation: parsed.reconciliation || initialState.reconciliation,
+                    projectInfo: {
+                        ...initialState.projectInfo,
+                        ...(typeof loadedProjectInfo === 'object' ? loadedProjectInfo : {}),
+                        // Force update project name if available to correct missing data
+                        projectName: properProjectName || loadedProjectInfo?.projectName || '',
+                        location: properLocation || loadedProjectInfo?.location || ''
+                    },
+                    manpower: safeParse(parsed.manpower, initialState.manpower),
+                    workStarted: safeParse(parsed.workStarted, initialState.workStarted),
+                    equipment: safeParse(parsed.equipment, initialState.equipment),
+                    materials: safeParse(parsed.materials, initialState.materials),
+                    work: safeParse(parsed.work, initialState.work),
+                    reconciliation: safeParse(parsed.reconciliation, initialState.reconciliation),
                     planTomorrow: parsed.planTomorrow || '',
-                    remarks: { ...initialState.remarks, ...(parsed.remarks || {}) },
-                    signatures: { ...initialState.signatures, ...(parsed.signatures || {}) }
+                    remarks: { ...initialState.remarks, ...(safeParse(parsed.remarks, {})) },
+                    signatures: { ...initialState.signatures, ...(safeParse(parsed.signatures, {})) }
                 });
                 setCurrentId(parsed.id || null);
 
                 // Auto-switch tab based on content
+                // Auto-switch tab based on content
+                const checkHasData = (arr, fields) => {
+                    if (!arr || !Array.isArray(arr) || arr.length === 0) return false;
+                    return arr.some(item => item && fields.some(f => {
+                        const val = item[f];
+                        if (val === null || val === undefined) return false;
+                        const s = val.toString().trim();
+                        return s !== '' && s !== '0';
+                    }));
+                };
+
+                const pManpower = safeParse(parsed.manpower, []);
+                const pWorkStarted = safeParse(parsed.workStarted, []);
+                const pEquipment = safeParse(parsed.equipment, []);
+                const pMaterials = safeParse(parsed.materials, []);
+                const pWork = safeParse(parsed.work, []);
+                const pReconciliation = safeParse(parsed.reconciliation, []);
+
+                const hasMorning = checkHasData(pManpower, ['trade', 'skilled', 'unskilled', 'total', 'note']) ||
+                    checkHasData(pWorkStarted, ['description', 'location', 'note']);
+
+                const hasEvening = checkHasData(pEquipment, ['name', 'qty', 'hours']) ||
+                    checkHasData(pMaterials, ['name', 'qty', 'received']) ||
+                    checkHasData(pWork, ['desc', 'qty', 'progress']) ||
+                    checkHasData(pReconciliation, ['item', 'actual']);
+
                 if (parsed.type === 'Morning Report') {
                     setActiveTab('morning');
                 } else if (parsed.type === 'Evening Report') {
                     setActiveTab('evening');
                 } else {
-                    // Fallback for older reports or full DPRs
-                    const hasEveningData = (parsed.equipment && parsed.equipment.length > 0) ||
-                        (parsed.materials && parsed.materials.length > 0) ||
-                        (parsed.work && parsed.work.length > 0) ||
-                        (parsed.reconciliation && parsed.reconciliation.length > 0);
-
-                    if (hasEveningData) {
+                    if (hasEvening && !hasMorning) {
                         setActiveTab('evening');
                     } else {
                         setActiveTab('morning');
@@ -322,7 +376,7 @@ const DPR = ({ onNavigate, currentUser }) => {
         }
 
         const compressImage = (file) => {
-            return new Promise((resolve) => {
+            return new Promise((resolve, reject) => {
                 const reader = new FileReader();
                 reader.readAsDataURL(file);
                 reader.onload = (event) => {
@@ -353,7 +407,9 @@ const DPR = ({ onNavigate, currentUser }) => {
                         ctx.drawImage(img, 0, 0, width, height);
                         resolve(canvas.toDataURL('image/jpeg', 0.7)); // Compress to 70% quality JPEG
                     };
+                    img.onerror = (e) => reject(new Error("Failed to load image"));
                 };
+                reader.onerror = (e) => reject(new Error("Failed to read file"));
             });
         };
 
@@ -393,6 +449,16 @@ const DPR = ({ onNavigate, currentUser }) => {
     // Save Report (Firestore)
     const saveReport = async (skipPdf = false, reportType = 'DPR') => {
         // Validation
+        const currentSiteObj = sites?.find(s => s.id === activeSite || s._id === activeSite);
+        if (!activeSite || !currentSiteObj || activeSite === 1 || activeSite === '1') {
+            // If activeSite is 1, it's likely the default dummy site which doesn't exist in backend
+            // Check if it's actually in sites list with that ID?
+            if (!currentSiteObj) {
+                alert("Please create and select a valid Site first. 'Main Office' (ID 1) might be a placeholder.");
+                return;
+            }
+        }
+
         if (!data.projectInfo.projectName || !data.projectInfo.dprNo || !data.projectInfo.date) {
             alert("Please fill in Project Name, DPR No, and Date before saving.");
             return;
@@ -404,7 +470,8 @@ const DPR = ({ onNavigate, currentUser }) => {
             // Generate consistent ID for this save operation
             const reportId = currentId || Date.now().toString();
 
-            const dataToSave = { ...data };
+            // Merge photos into the payload
+            const dataToSave = { ...data, photos };
 
             // Prepare Data for Local Storage (Bypassing Firestore as requested)
             const reportData = {
@@ -421,17 +488,30 @@ const DPR = ({ onNavigate, currentUser }) => {
 
             // Save to Backend
             let savedId;
-            if (currentId && typeof currentId === 'string' && currentId.length === 24) { // Check if it's a MongoDB ID
+            if (currentId) {
                 const res = await updateDPR(currentId, dataToSave);
                 if (res.success) {
-                    savedId = res.dpr._id;
+                    savedId = res.dpr._id || res.dpr.id;
                 } else {
-                    throw new Error(res.message);
+                    // Smart Recovery for "DPR not found" (e.g. after database wipe)
+                    if (res.message && (res.message.toLowerCase().includes('not found') || res.message.includes('Cast to ObjectId failed'))) {
+                        console.warn("DPR ID invalid/not found, creating new record instead...");
+                        // Strip ID to force creation
+                        const { id, _id, ...newData } = dataToSave;
+                        const createRes = await addDPR(newData);
+                        if (createRes.success) {
+                            savedId = createRes.dpr._id || createRes.dpr.id;
+                        } else {
+                            throw new Error(createRes.message);
+                        }
+                    } else {
+                        throw new Error(res.message);
+                    }
                 }
             } else {
                 const res = await addDPR(dataToSave);
                 if (res.success) {
-                    savedId = res.dpr._id;
+                    savedId = res.dpr._id || res.dpr.id;
                 } else {
                     throw new Error(res.message);
                 }

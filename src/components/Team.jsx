@@ -6,7 +6,7 @@ const Team = ({ currentUser, onNavigate, setPageData }) => {
   const [showImportModal, setShowImportModal] = useState(false);
   const [availableUsers, setAvailableUsers] = useState([]);
 
-  const isAdmin = ['Owner', 'Partner', 'Admin'].includes(currentUser.role);
+  const isAdmin = ['Owner', 'Partner', 'Admin'].includes(currentUser.role) || currentUser.permission === 'full_control';
 
   const handleAddMember = () => {
     setPageData(null);
@@ -33,7 +33,7 @@ const Team = ({ currentUser, onNavigate, setPageData }) => {
   };
 
   const handleImportUser = async (user) => {
-    const result = await assignUserToSite(user.username || user.email);
+    const result = await assignUserToSite(user);
     if (result.success) {
       alert("User imported successfully!");
       setShowImportModal(false);

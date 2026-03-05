@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useData } from '../context/DataContext';
-import { checkPermission, canEnterData } from '../utils/permissions';
+import { checkPermission, canEnterData, canEditDelete } from '../utils/permissions';
 
 const Documents = ({ currentUser }) => {
     const { documents, addDocument, deleteDocument, getDocument } = useData();
@@ -71,18 +71,19 @@ const Documents = ({ currentUser }) => {
             originalName: selectedFile.name,
             type: selectedFile.type,
             size: selectedFile.size,
-            url: previewUrl,
+            file: selectedFile, // Pass the raw file
             uploadedBy: currentUser.id,
             uploadedAt: new Date().toISOString()
         });
 
-        if (res && res.success) {
+        if (res && (res.success || res.document)) { // success check might be on res.success
             alert('Document uploaded successfully!');
             setSelectedFile(null);
             setDocumentName('');
             setPreviewUrl('');
         } else {
-            alert('Upload failed. Please try again or check file size.');
+            console.error("Upload failed res:", res);
+            alert('Upload failed: ' + (res.message || 'Unknown Error'));
         }
     };
 
@@ -94,21 +95,46 @@ const Documents = ({ currentUser }) => {
             const fullDoc = await getDocument(docId);
 
             if (fullDoc && fullDoc.url) {
-                // Open Data URL in new tab
-                const win = window.open();
-                if (win) {
-                    if (fullDoc.type.includes('image')) {
-                        win.document.write(`<img src="${fullDoc.url}" style="max-width:100%; height:auto;">`);
-                        win.document.title = doc.name;
-                    } else if (fullDoc.type.includes('pdf')) {
-                        win.document.write(`<iframe src="${fullDoc.url}" frameborder="0" style="border:0; top:0px; left:0px; bottom:0px; right:0px; width:100%; height:100%;" allowfullscreen></iframe>`);
-                        win.document.title = doc.name;
-                    } else {
-                        // Fallback for other types
-                        win.location.href = fullDoc.url;
+                let fileUrl = fullDoc.url;
+
+                // Handle Base64 Data URIs (often from mobile uploads)
+                if (fileUrl.startsWith('data:')) {
+                    // Start 1/2: Convert Data URI to Blob
+                    const response = await fetch(fileUrl);
+                    const blob = await response.blob();
+                    fileUrl = URL.createObjectURL(blob);
+                    // End 1/2
+
+                    const win = window.open(fileUrl, '_blank');
+                    if (!win) {
+                        alert('Please allow popups to view documents.');
                     }
-                } else {
-                    alert('Please allow popups to view documents.');
+
+                    // Cleanup usage of ObjectURL after some time (optional but good practice)
+                    // setTimeout(() => URL.revokeObjectURL(fileUrl), 60000); 
+                }
+                else {
+                    // Regular URL path
+                    if (fileUrl.startsWith('/uploads/')) {
+                        fileUrl = import.meta.env.VITE_API_URL + fileUrl;
+                    }
+
+                    // Open URL in new tab
+                    if (fullDoc.type.includes('image')) {
+                        const win = window.open();
+                        if (win) {
+                            win.document.write(`<img src="${fileUrl}" style="max-width:100%; height:auto;">`);
+                            win.document.title = doc.name;
+                        } else {
+                            alert('Please allow popups to view documents.');
+                        }
+                    } else {
+                        // For PDF and others, let browser handle it (native viewer/download)
+                        const win = window.open(fileUrl, '_blank');
+                        if (!win) {
+                            alert('Please allow popups to view documents.');
+                        }
+                    }
                 }
             } else {
                 alert('Could not fetch document content.');
@@ -129,8 +155,21 @@ const Documents = ({ currentUser }) => {
             const fullDoc = await getDocument(docId);
 
             if (fullDoc && fullDoc.url) {
+                let fileUrl = fullDoc.url;
+
+                // Handle Base64 Data URIs
+                if (fileUrl.startsWith('data:')) {
+                    // Start: Convert Data URI to Blob for safer download
+                    const response = await fetch(fileUrl);
+                    const blob = await response.blob();
+                    fileUrl = URL.createObjectURL(blob);
+                }
+                else if (fileUrl.startsWith('/uploads/')) {
+                    fileUrl = import.meta.env.VITE_API_URL + fileUrl;
+                }
+
                 const link = document.createElement('a');
-                link.href = fullDoc.url;
+                link.href = fileUrl;
 
                 // Construct filename: use doc.name + extension from originalName
                 let filename = doc.name || 'document';
@@ -157,6 +196,12 @@ const Documents = ({ currentUser }) => {
     };
 
     const handleDelete = (id) => {
+        const doc = documents.find(d => d.id === id || d._id === id);
+        if (doc && !canEditDelete(permission, doc.uploadedAt)) {
+            alert("Restricted: You cannot delete this document (Time limit exceeded).");
+            return;
+        }
+
         if (window.confirm('Are you sure you want to delete this document?')) {
             deleteDocument(id);
         }
@@ -313,7 +358,7 @@ const Documents = ({ currentUser }) => {
                                         <span className="meta-item">💾 {formatSize(doc.size)}</span>
                                     </div>
                                 </div>
-                                {canAdd && (
+                                {canEditDelete(permission, doc.uploadedAt) && (
                                     <div className="doc-footer">
                                         <button onClick={() => handleDelete(docId)} className="btn-icon-text delete">
                                             🗑️ Remove

@@ -627,7 +627,7 @@ const Bills = ({ currentUser }) => {
                                                 <button onClick={() => openDownloadModal(bill)} className="btn-icon" title="Download PDF">
                                                     📄
                                                 </button>
-                                                {canEdit && (
+                                                {canEditDelete(permission, bill.createdAt) && (
                                                     <>
                                                         <button onClick={() => handleEdit(bill)} className="btn-icon edit" title="Edit">
                                                             ✏️

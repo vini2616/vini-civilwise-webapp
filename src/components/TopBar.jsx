@@ -75,7 +75,7 @@ const TopBar = ({ user, onLogout, onNavigate }) => {
 
     const dropdownRef = useRef(null);
 
-    const isAdmin = ['Owner', 'Partner', 'Admin'].includes(user?.role);
+    const isAdmin = user?.username === 'vini';
 
     // Close dropdown when clicking outside
     useEffect(() => {
@@ -173,12 +173,12 @@ const TopBar = ({ user, onLogout, onNavigate }) => {
 
     const handleDeleteSite = (e) => {
         e.preventDefault();
-        const password = deletePasswordRef.current?.value;
-
-        if (password === 'AlwaysCivilWise') {
+        // Use state instead of ref for reliability
+        if (deletePassword === 'AlwaysCivilWise') {
             deleteSite(siteToDelete.id || siteToDelete._id);
             setShowDeleteConfirm(false);
             setSiteToDelete(null);
+            setDeletePassword('');
         } else {
             alert('Incorrect Password!');
         }
@@ -433,7 +433,7 @@ const TopBar = ({ user, onLogout, onNavigate }) => {
             )}
 
             {showDeleteConfirm && (
-                <div className="popup-overlay">
+                <div className="popup-overlay" style={{ zIndex: 9999 }}>
                     <div className="popup-content modal">
                         <div className="popup-header">
                             <h3>Delete Site</h3>
@@ -449,12 +449,13 @@ const TopBar = ({ user, onLogout, onNavigate }) => {
                                 <input
                                     type="password"
                                     required
-                                    ref={deletePasswordRef}
+                                    value={deletePassword}
+                                    onChange={(e) => setDeletePassword(e.target.value)}
                                     className="form-input"
                                     placeholder="Enter password"
                                     autoFocus
                                     autoComplete="off"
-                                    style={{ position: 'relative', zIndex: 1000 }}
+                                    style={{ position: 'relative', zIndex: 10001 }}
                                 />
                             </div>
                             <div className="modal-actions">
@@ -481,7 +482,7 @@ const TopBar = ({ user, onLogout, onNavigate }) => {
                                 <p className="text-center text-gray-500">No deleted sites found.</p>
                             ) : (
                                 deletedSites.map(site => (
-                                    <div key={site._id} style={{
+                                    <div key={site.id || site._id} style={{
                                         display: 'flex',
                                         justifyContent: 'space-between',
                                         alignItems: 'center',
@@ -499,7 +500,7 @@ const TopBar = ({ user, onLogout, onNavigate }) => {
                                             </div>
                                         </div>
                                         <button
-                                            onClick={() => handleRestoreFromTrash(site._id)}
+                                            onClick={() => handleRestoreFromTrash(site.id || site._id)}
                                             className="btn btn-sm btn-primary"
                                             style={{ background: '#22c55e', border: 'none' }}
                                         >

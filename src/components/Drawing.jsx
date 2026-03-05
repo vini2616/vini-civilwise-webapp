@@ -37,57 +37,40 @@ const Drawing = ({ currentUser }) => {
         }
     };
 
-    const handleUpload = (e) => {
+    const handleUpload = async (e) => {
         e.preventDefault();
         if (!selectedFile) return;
 
-        // Check file size (limit to 10MB for MongoDB BSON limit safety)
-        const maxSize = 10 * 1024 * 1024; // 10MB
+        // NEW: Max limit 50MB (matching server)
+        const maxSize = 50 * 1024 * 1024; // 50MB
         if (selectedFile.size > maxSize) {
-            alert('File is too large! Please upload a file smaller than 10MB.');
+            alert('File is too large! Please upload a file smaller than 50MB.');
             return;
         }
 
         setIsUploading(true);
-        const reader = new FileReader();
-
-        reader.onloadend = async () => {
-            try {
-                const result = await addDrawing({
-                    name: fileName,
-                    type: activeTab, // 'pdf' or 'dwg'
-                    url: reader.result,
-                    timestamp: new Date().toISOString(), // Optional, backend sets this
-                    uploadedBy: currentUser.id,
-                    size: selectedFile.size // Send raw bytes
-                });
-
-                if (result && result.success) {
-                    setSelectedFile(null);
-                    setFileName('');
-                    alert('Drawing uploaded successfully!');
-                } else {
-                    alert('Failed to save drawing. ' + (result?.message || 'Unknown Error'));
-                }
-            } catch (error) {
-                console.error("Upload failed exception:", error);
-                alert('Failed to save drawing.');
-            } finally {
-                setIsUploading(false);
-            }
-        };
-
-        reader.onerror = () => {
-            console.error("File reading failed");
-            alert('Error reading file.');
-            setIsUploading(false);
-        };
 
         try {
-            reader.readAsDataURL(selectedFile);
+            // Create FormData for Multipart upload
+            const formData = new FormData();
+            formData.append('file', selectedFile);
+            formData.append('name', fileName);
+            formData.append('type', activeTab);
+            // timestamp, uploadedBy, size are handled by server/file
+
+            const result = await addDrawing(formData);
+
+            if (result && result.success) {
+                setSelectedFile(null);
+                setFileName('');
+                alert('Drawing uploaded successfully!');
+            } else {
+                alert('Failed to save drawing. ' + (result?.message || 'Unknown Error'));
+            }
         } catch (error) {
-            console.error("Error starting file read:", error);
-            alert('Could not read file.');
+            console.error("Upload failed exception:", error);
+            alert('Failed to save drawing.');
+        } finally {
             setIsUploading(false);
         }
     };
@@ -270,7 +253,7 @@ const Drawing = ({ currentUser }) => {
                                             </button>
                                             <a
                                                 href={drawing.url}
-                                                download={drawing.name}
+                                                download={drawing.name.toLowerCase().endsWith(`.${drawing.type}`) ? drawing.name : `${drawing.name}.${drawing.type}`}
                                                 className="btn-icon action-btn download"
                                                 title="Download"
                                             >

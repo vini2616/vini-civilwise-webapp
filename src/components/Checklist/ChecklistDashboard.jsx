@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
 import { useData } from '../../context/DataContext';
+import { checkPermission, canEditDelete } from '../../utils/permissions';
 
 const ChecklistDashboard = ({ onNavigate, setPageData }) => {
-    const { checklists, checklistTemplates, addChecklist, updateChecklist, deleteChecklist } = useData();
+    const { checklists, checklistTemplates, addChecklist, updateChecklist, deleteChecklist, currentUser } = useData();
+    const permission = checkPermission(currentUser, 'checklist');
     const [showNewModal, setShowNewModal] = useState(false);
     const [selectedTemplate, setSelectedTemplate] = useState('');
     const [newChecklistName, setNewChecklistName] = useState('');
@@ -18,24 +20,81 @@ const ChecklistDashboard = ({ onNavigate, setPageData }) => {
     const handleCreateChecklist = async () => {
         if (!selectedTemplate) return;
 
-        const template = checklistTemplates.find(t => (t._id || t.id) === selectedTemplate);
-        if (!template) return;
+        // Use loose comparison or string conversion to ensure match
+        const template = checklistTemplates.find(t => String(t._id || t.id) === String(selectedTemplate));
 
-        const newChecklist = {
-            templateId: template._id || template.id,
-            templateName: template.name,
-            name: newChecklistName || `${template.name} - ${new Date().toLocaleDateString()}`,
-            templateName: template.name,
-            name: newChecklistName || `${template.name} - ${new Date().toLocaleDateString()}`,
-            items: template.items.map(item => ({ ...item, status: 'Pending', remark: '', photos: [] })),
-            progress: 0,
-            status: 'In Progress'
-        };
+        if (!template) {
+            console.error("Template not found for ID:", selectedTemplate);
+            alert("Selected template not found. Please refresh the page.");
+            return;
+        }
 
-        await addChecklist(newChecklist);
-        setShowNewModal(false);
-        setNewChecklistName('');
-        setSelectedTemplate('');
+        try {
+            let templateItems = template.items;
+
+            // Fix: Parse items if they are a string
+            if (typeof templateItems === 'string') {
+                try {
+                    templateItems = JSON.parse(templateItems);
+                } catch (e) {
+                    console.warn("Failed to parse template items JSON:", e);
+                    templateItems = [];
+                }
+            }
+
+            // Ensure it is an array
+            if (!Array.isArray(templateItems)) {
+                console.warn("Template items is not an array:", templateItems);
+                templateItems = [];
+            }
+
+            const newChecklist = {
+                templateId: template._id || template.id,
+                templateName: template.name,
+                name: newChecklistName || `${template.name} - ${new Date().toLocaleDateString()}`,
+                items: templateItems.map((item, index) => ({
+                    ...item,
+                    id: item.id || `item-${Date.now()}-${index}`, // Ensure valid ID
+                    status: 'Pending',
+                    remark: '',
+                    photos: []
+                })),
+                progress: 0,
+                status: 'In Progress'
+            };
+
+            const result = await addChecklist(newChecklist);
+
+            // Check specific success condition if addChecklist returns it, or assume success if it completed without error
+            // DataContext's addChecklist returns { success: true, ... } on success, or undefined/void on failure usually
+            if (result && result.success) {
+                setShowNewModal(false);
+                setNewChecklistName('');
+                setSelectedTemplate('');
+            } else {
+                // If it returned something else or undefined, it might have failed
+                // But existing DataContext might just return nothing on failure check?
+                // Let's check DataContext again. It returns undefined if auth fails or catch block hit.
+                // So if result is falsy, it failed.
+                console.error("Checklist creation failed or returned no result");
+                // If it's a silent failure in DataContext (e.g. catch), we should alert
+                // However, previously it was `await addChecklist(...)` then `setShowNewModal(false)` unconditionally
+                // which suggests it blindly closed. If it didn't close, it means code THREW before closing.
+                // Now we are safe.
+
+                // If result is undefined, we assume failure now.
+                if (!result) {
+                    alert("Failed to start inspection. Please check your connection or try logging in again.");
+                } else {
+                    setShowNewModal(false);
+                    setNewChecklistName('');
+                    setSelectedTemplate('');
+                }
+            }
+        } catch (error) {
+            console.error("Error creating checklist:", error);
+            alert("An error occurred: " + error.message);
+        }
     };
 
     const handleOpenChecklist = (checklist) => {
@@ -79,9 +138,12 @@ const ChecklistDashboard = ({ onNavigate, setPageData }) => {
                     <p className="text-muted">Manage and track site inspections.</p>
                 </div>
                 <div className="header-actions">
-                    <button className="btn btn-secondary" onClick={() => onNavigate('checklist-templates')}>
-                        Manage Templates
-                    </button>
+                    {/* Restrict Template Management to users who can Edit/Delete (Admins) */}
+                    {canEditDelete(permission) && (
+                        <button className="btn btn-secondary" onClick={() => onNavigate('checklist-templates')}>
+                            Manage Templates
+                        </button>
+                    )}
                     <button className="btn btn-primary" onClick={() => setShowNewModal(true)}>
                         + New Checklist
                     </button>
@@ -94,30 +156,44 @@ const ChecklistDashboard = ({ onNavigate, setPageData }) => {
                         <p>No active checklists. Start a new inspection!</p>
                     </div>
                 ) : (
-                    checklists.map(checklist => (
-                        <div key={checklist._id || checklist.id} className="checklist-card" onClick={() => handleOpenChecklist(checklist)}>
-                            <div className="card-header">
-                                <h3>{checklist.name}</h3>
-                                <div className="card-actions">
-                                    <button className="btn-icon edit" onClick={(e) => handleEditClick(e, checklist)} title="Edit Name">✎</button>
-                                    <button className="btn-icon delete" onClick={(e) => handleDeleteClick(e, checklist)} title="Delete Checklist">🗑️</button>
+                    checklists.map(checklist => {
+                        // Safe parsing of items for display logic
+                        let safeItems = checklist.items;
+                        if (typeof safeItems === 'string') {
+                            try { safeItems = JSON.parse(safeItems); } catch (e) { safeItems = []; }
+                        }
+                        if (!Array.isArray(safeItems)) safeItems = [];
+
+                        // Ensure all items have IDs (retroactive fix for existing bad data)
+                        safeItems = safeItems.map((i, idx) => ({ ...i, id: i.id || `fixed-${idx}` }));
+
+                        return (
+                            <div key={checklist._id || checklist.id} className="checklist-card" onClick={() => handleOpenChecklist({ ...checklist, items: safeItems })}>
+                                <div className="card-header">
+                                    <h3>{checklist.name}</h3>
+                                    {canEditDelete(permission, checklist.createdAt) && (
+                                        <div className="card-actions">
+                                            <button className="btn-icon edit" onClick={(e) => handleEditClick(e, checklist)} title="Edit Name">✎</button>
+                                            <button className="btn-icon delete" onClick={(e) => handleDeleteClick(e, checklist)} title="Delete Checklist">🗑️</button>
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="card-body">
+                                    <div className="status-row">
+                                        <span className={`status-badge ${(safeItems.some(i => i.status === 'Rejected') ? 'rejected' : (checklist.status || 'In Progress').toLowerCase().replace(' ', '-'))}`}>
+                                            {checklist.status || 'In Progress'}
+                                        </span>
+                                    </div>
+                                    <p><strong>Template:</strong> {checklist.templateName}</p>
+                                    <p><strong>Date:</strong> {new Date(checklist.createdAt).toLocaleDateString()}</p>
+                                    <div className="progress-bar-container">
+                                        <div className="progress-bar" style={{ width: `${checklist.progress}%` }}></div>
+                                    </div>
+                                    <p className="progress-text">{Math.round(checklist.progress || 0)}% Completed</p>
                                 </div>
                             </div>
-                            <div className="card-body">
-                                <div className="status-row">
-                                    <span className={`status-badge ${(checklist.items?.some(i => i.status === 'Rejected') ? 'rejected' : (checklist.status || 'In Progress').toLowerCase().replace(' ', '-'))}`}>
-                                        {checklist.status || 'In Progress'}
-                                    </span>
-                                </div>
-                                <p><strong>Template:</strong> {checklist.templateName}</p>
-                                <p><strong>Date:</strong> {new Date(checklist.createdAt).toLocaleDateString()}</p>
-                                <div className="progress-bar-container">
-                                    <div className="progress-bar" style={{ width: `${checklist.progress}%` }}></div>
-                                </div>
-                                <p className="progress-text">{Math.round(checklist.progress || 0)}% Completed</p>
-                            </div>
-                        </div>
-                    ))
+                        );
+                    })
                 )}
             </div>
 
@@ -141,6 +217,7 @@ const ChecklistDashboard = ({ onNavigate, setPageData }) => {
                                 type="text"
                                 placeholder="e.g., Block A - First Floor Slab"
                                 value={newChecklistName}
+                                style={{ zIndex: 2002, position: 'relative', color: '#000' }}
                                 onChange={(e) => setNewChecklistName(e.target.value)}
                             />
                         </div>
@@ -311,7 +388,7 @@ const ChecklistDashboard = ({ onNavigate, setPageData }) => {
                     display: flex;
                     justify-content: center;
                     align-items: center;
-                    z-index: 1000;
+                    z-index: 2000;
                 }
                 .modal-content {
                     background: white;

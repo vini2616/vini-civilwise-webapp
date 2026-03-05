@@ -48,7 +48,7 @@ const ProjectSchedule = () => {
     });
 
     // Project Title State
-    const currentSiteName = sites.find(s => s.id === activeSite)?.name || 'Project Schedule';
+    const currentSiteName = sites.find(s => (s.id || s._id) === activeSite)?.name || 'Project Schedule';
     const [projectTitle, setProjectTitle] = useState(() => {
         return localStorage.getItem(`vini_project_title_${activeSite}`) || currentSiteName;
     });
@@ -110,6 +110,12 @@ const ProjectSchedule = () => {
     };
 
     const handleDelete = (id) => {
+        const task = projectTasks.find(t => (t.id === id || t._id === id));
+        if (task && !canEditDelete(permission, task.createdAt)) {
+            alert("Restricted: You cannot delete this task (Time limit exceeded).");
+            return;
+        }
+
         if (window.confirm('Are you sure you want to delete this task?')) {
             deleteProjectTask(id);
         }
@@ -118,6 +124,10 @@ const ProjectSchedule = () => {
     const handleSubmit = (e) => {
         e.preventDefault();
         if (editingTask) {
+            if (!canEditDelete(permission, editingTask.createdAt)) {
+                alert("Restricted: You cannot edit this task (Time limit exceeded).");
+                return;
+            }
             updateProjectTask({ ...formData, id: editingTask._id || editingTask.id });
         } else {
             addProjectTask(formData);
@@ -209,8 +219,12 @@ const ProjectSchedule = () => {
                             <div className="col-date">{formatDateForDisplay(task.startDate)}</div>
                             <div className="col-date">{formatDateForDisplay(task.endDate)}</div>
                             <div className="col-action no-print">
-                                <button className="btn-icon" onClick={() => handleEdit(task)}>✎</button>
-                                <button className="btn-icon delete" onClick={() => handleDelete(task._id || task.id)}>🗑️</button>
+                                {canEditDelete(permission, task.createdAt) && (
+                                    <>
+                                        <button className="btn-icon" onClick={() => handleEdit(task)}>✎</button>
+                                        <button className="btn-icon delete" onClick={() => handleDelete(task._id || task.id)}>🗑️</button>
+                                    </>
+                                )}
                             </div>
                         </div>
                     ))}

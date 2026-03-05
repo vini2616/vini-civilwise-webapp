@@ -1,8 +1,12 @@
 import React, { useState } from 'react';
 import { useData } from '../../context/DataContext';
+import { checkPermission, canEditDelete } from '../../utils/permissions';
 
 const TemplateManager = ({ onNavigate }) => {
-    const { checklistTemplates, addChecklistTemplate, deleteChecklistTemplate } = useData();
+    const { checklistTemplates, addChecklistTemplate, deleteChecklistTemplate, currentUser } = useData();
+    const permission = checkPermission(currentUser, 'checklist');
+    const canManage = canEditDelete(permission); // Only Admins/Editors
+
     const [showModal, setShowModal] = useState(false);
     const [newTemplateName, setNewTemplateName] = useState('');
     const [newTemplateItems, setNewTemplateItems] = useState([{ id: 1, text: '' }]);
@@ -41,26 +45,36 @@ const TemplateManager = ({ onNavigate }) => {
                     ← Back
                 </button>
                 <h1>Manage Templates</h1>
-                <button className="btn btn-primary" onClick={() => setShowModal(true)}>
-                    + New Template
-                </button>
+                {canManage && (
+                    <button className="btn btn-primary" onClick={() => setShowModal(true)}>
+                        + New Template
+                    </button>
+                )}
             </div>
 
             <div className="templates-list">
-                {checklistTemplates.map(template => (
-                    <div key={template._id || template.id} className="template-card">
-                        <div className="card-header">
-                            <h3>{template.name}</h3>
-                            <button className="btn-delete" onClick={() => deleteChecklistTemplate(template._id || template.id)}>🗑️</button>
+                {checklistTemplates.map(template => {
+                    let safeItems = template.items;
+                    if (typeof safeItems === 'string') {
+                        try { safeItems = JSON.parse(safeItems); } catch (e) { safeItems = []; }
+                    }
+                    if (!Array.isArray(safeItems)) safeItems = [];
+
+                    return (
+                        <div key={template._id || template.id} className="template-card">
+                            <div className="card-header">
+                                <h3>{template.name}</h3>
+                                {canManage && <button className="btn-delete" onClick={() => deleteChecklistTemplate(template._id || template.id)}>🗑️</button>}
+                            </div>
+                            <ul className="template-items">
+                                {safeItems.slice(0, 3).map((item, idx) => (
+                                    <li key={item.id || idx}>{item.text}</li>
+                                ))}
+                                {safeItems.length > 3 && <li className="more-items">+{safeItems.length - 3} more items</li>}
+                            </ul>
                         </div>
-                        <ul className="template-items">
-                            {template.items.slice(0, 3).map(item => (
-                                <li key={item.id}>{item.text}</li>
-                            ))}
-                            {template.items.length > 3 && <li className="more-items">+{template.items.length - 3} more items</li>}
-                        </ul>
-                    </div>
-                ))}
+                    );
+                })}
             </div>
 
             {showModal && (

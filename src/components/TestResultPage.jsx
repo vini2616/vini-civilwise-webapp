@@ -25,7 +25,11 @@ const TestResultPage = ({ test, day, onBack }) => {
             lastLoadedId.current = currentId;
 
             // Check both test.data.results (standard) and test.results (legacy/flat)
-            const results = test.data?.results || test.results;
+            let safeData = test.data || {};
+            if (typeof safeData === 'string') {
+                try { safeData = JSON.parse(safeData); } catch (e) { console.error("Parse error loading results", e); safeData = {}; }
+            }
+            const results = safeData.results || test.results;
             if (results && results[day]) {
                 const result = results[day];
                 setReadings(result.readings || ['', '', '']);
@@ -58,8 +62,14 @@ const TestResultPage = ({ test, day, onBack }) => {
             setAverage(avg);
 
             // Determine Pass/Fail
-            const gradeStr = String(test.data?.grade || test.grade || 'M0');
-            const gradeValue = parseInt(gradeStr.replace('M', ''));
+            // Parse data if it's a string (common issue preventing grade read)
+            let safeData = test.data || {};
+            if (typeof safeData === 'string') {
+                try { safeData = JSON.parse(safeData); } catch (e) { console.error("Parse error", e); safeData = {}; }
+            }
+
+            const gradeStr = String(safeData.grade || test.grade || 'M0');
+            const gradeValue = parseInt(gradeStr.replace('M', ''), 10);
             let requiredStrength = 0;
 
             if (day === 'day7') {
@@ -70,7 +80,12 @@ const TestResultPage = ({ test, day, onBack }) => {
                 requiredStrength = gradeValue; // 100% for 28 days
             }
 
-            setStatus(parseFloat(avg) >= requiredStrength ? 'Pass' : 'Fail');
+            // If grade is 0 (M0 or invalid), it shouldn't pass by default if we have a real reading
+            if (gradeValue === 0) {
+                setStatus('Pending'); // Cannot judge without grade
+            } else {
+                setStatus(parseFloat(avg) >= requiredStrength ? 'Pass' : 'Fail');
+            }
         } else {
             setAverage(0);
             setStatus('');
@@ -121,11 +136,11 @@ const TestResultPage = ({ test, day, onBack }) => {
             if (res && res.success) {
                 onBack();
             } else {
-                alert('Failed to save result. Please try again.');
+                alert(res?.message || 'Failed to save result. Please try again.');
             }
         } catch (error) {
             console.error("Save failed", error);
-            alert('An error occurred while saving.');
+            alert('An error occurred while saving: ' + error.message);
         }
     };
 

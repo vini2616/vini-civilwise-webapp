@@ -4,12 +4,14 @@ export const checkPermission = (user, moduleName) => {
     // Global Admin / Full Control override
     // Global Admin / Full Control override
     // We rely on 'permission' field now, so even Owners can be restricted if needed
-    if (user.permission === 'full_control') {
+    const userPerm = user.permission ? user.permission.trim() : '';
+
+    if (userPerm === 'full_control') {
         return 'full_control';
     }
 
     // Global Data Entry override
-    if (user.permission === 'data_entry') {
+    if (userPerm === 'data_entry') {
         return 'data_entry';
     }
 
@@ -31,16 +33,8 @@ export const canEnterData = (permission) => {
 export const canEditDelete = (permission, itemCreatedAt = null) => {
     if (permission === 'full_control') return true;
 
-    // Restricted (Data Entry) users have 30 minutes to edit/delete their OWN entries
-    // Note: The UI usually passes 'item' which has 'createdAt'. 
-    // If no createdAt is passed, we default to blocking edit for safety OR we could allow if we assume it's a new item? 
-    // Better to block if unsure.
-    if (permission === 'data_entry' && itemCreatedAt) {
-        const created = new Date(itemCreatedAt).getTime();
-        const now = Date.now();
-        const diffMins = (now - created) / 1000 / 60;
-        return diffMins <= 30;
-    }
+    // Strict Rule: Data Entry users cannot edit or delete.
+    if (permission === 'data_entry') return false;
 
     return false;
 };

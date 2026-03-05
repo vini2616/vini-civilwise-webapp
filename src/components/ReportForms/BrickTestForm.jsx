@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useData } from '../../context/DataContext';
+import { checkPermission } from '../../utils/permissions';
 
 const BrickTestForm = ({ onBack, initialData }) => {
-    const { addBrickTest, updateBrickTest } = useData();
+    const { addBrickTest, updateBrickTest, currentUser } = useData();
+    const permission = checkPermission(currentUser, 'report');
     const [formData, setFormData] = useState({
         location: '',
         supplier: '',
@@ -21,16 +23,21 @@ const BrickTestForm = ({ onBack, initialData }) => {
 
     useEffect(() => {
         if (initialData) {
+            let safeData = initialData.data || {};
+            if (typeof safeData === 'string') {
+                try { safeData = JSON.parse(safeData); } catch (e) { safeData = {}; }
+            }
+
             setFormData({
                 ...initialData,
                 testDate: initialData.date ? new Date(initialData.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
                 location: initialData.location || '',
-                supplier: initialData.data?.supplier || initialData.supplier || '',
-                blockType: initialData.data?.blockType || initialData.blockType || 'AAC Block',
-                size: initialData.data?.size || initialData.size || '',
+                supplier: safeData.supplier || initialData.supplier || '',
+                blockType: safeData.blockType || initialData.blockType || 'AAC Block',
+                size: safeData.size || initialData.size || '',
                 image: initialData.image || null,
                 status: initialData.status || 'Pass',
-                results: initialData.data?.results || {
+                results: safeData.results || {
                     compressiveStrength: '',
                     waterAbsorption: '',
                     remarks: '',
@@ -66,6 +73,15 @@ const BrickTestForm = ({ onBack, initialData }) => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+
+        // Permission Check for Data Entry
+        if (permission === 'data_entry' && initialData) {
+            if (initialData.status === 'Pass' || initialData.status === 'Fail' || (initialData.data && (initialData.data.results?.compressiveStrength))) {
+                alert("Data Entry users cannot edit submitted test reports.");
+                return;
+            }
+        }
+
         console.log("Submitting Brick Test...");
 
         const payload = {

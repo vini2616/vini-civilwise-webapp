@@ -13,18 +13,64 @@ const drawDPRPage = (doc, data, photos = []) => {
     doc.line(m, 28, 195, 28);
     y = 40;
 
+    if (!data) {
+        doc.setFontSize(14).setTextColor(255, 0, 0);
+        doc.text("Error: Missing Report Data", m, y);
+        return;
+    }
+
+    // Safe Parser
+    const safeData = (arr, defaultValue = []) => {
+        if (!arr) return defaultValue;
+        if (Array.isArray(arr)) return arr;
+        try {
+            const parsed = JSON.parse(arr);
+            return Array.isArray(parsed) ? parsed : defaultValue;
+        } catch { return defaultValue; }
+    };
+    const safeObj = (obj, defaultValue = {}) => {
+        if (!obj) return defaultValue;
+        if (typeof obj === 'object') return obj;
+        try {
+            return JSON.parse(obj) || defaultValue;
+        } catch { return defaultValue; }
+    };
+
+    // Parse main sections
+    const manpower = safeData(data.manpower);
+    const workStarted = safeData(data.workStarted);
+    const equipment = safeData(data.equipment);
+    const materials = safeData(data.materials);
+    const work = safeData(data.work);
+    const reconciliation = safeData(data.reconciliation);
+    const remarks = safeObj(data.remarks, { hindrances: '', safety: '' });
+    const signatures = safeObj(data.signatures, { prepared: '', reviewed: '', approved: '' });
+    const projectInfo = safeObj(data.projectInfo, {
+        projectName: '', location: '', dprNo: '', date: '', weather: '', temp: ''
+    });
+
+    // Sanitize Photos and check fallback
+    let safePhotos = safeData(photos);
+    if (safePhotos.length === 0 && data.photos) {
+        safePhotos = safeData(data.photos);
+    }
+
+
+
     // Project Info
-    const info = data.projectInfo;
+    // Strip emojis/non-standard chars from weather to prevent PDF errors
+    const cleanWeather = (projectInfo.weather || '').replace(/[^\x00-\x7F]/g, "").trim();
+
     const infoBody = [
-        ['Project', info.projectName, 'Location', info.location],
-        ['DPR No', info.dprNo, 'Date', info.date],
-        ['Weather', info.weather, 'Temp', `${info.temp}°C`]
+        ['Project', projectInfo.projectName, 'Location', projectInfo.location],
+        ['DPR No', projectInfo.dprNo, 'Date', projectInfo.date],
+        ['Weather', cleanWeather, 'Temp', projectInfo.temp ? `${projectInfo.temp}°C` : '']
     ];
 
     autoTable(doc, {
         body: infoBody,
         startY: y,
-        theme: 'plain',
+        theme: 'grid',
         styles: { cellPadding: 2, fontSize: 10, textColor: 50 },
         columnStyles: {
             0: { fontStyle: 'bold', cellWidth: 25, textColor: 0 },
@@ -56,7 +102,7 @@ const drawDPRPage = (doc, data, photos = []) => {
     };
 
     // Manpower
-    const mpBody = data.manpower.map(r => {
+    const mpBody = manpower.map(r => {
         const skilled = Number(r.skilled) || 0;
         const unskilled = Number(r.unskilled) || 0;
         const total = r.total || (skilled + unskilled);
@@ -65,25 +111,25 @@ const drawDPRPage = (doc, data, photos = []) => {
     printTable('Manpower', ['Trade', 'Skilled', 'Unskilled', 'Total', 'Note'], mpBody);
 
     // Work Started (New)
-    if (data.workStarted && data.workStarted.length > 0) {
-        const wsBody = data.workStarted.map(r => [r.description, r.location, r.note]);
+    if (workStarted.length > 0) {
+        const wsBody = workStarted.map(r => [r.description, r.location, r.note]);
         printTable('Work Started Today', ['Description', 'Location', 'Note'], wsBody);
     }
 
     // Equipment
-    const eqBody = data.equipment.map(r => [r.name, r.qty, r.hrs, r.status]);
+    const eqBody = equipment.map(r => [r.name, r.qty, r.hrs, r.status]);
     printTable('Equipment', ['Name', 'Qty', 'Hrs', 'Status'], eqBody);
 
     // Materials
-    const matBody = data.materials.map(r => [r.type, r.name, r.unit, r.qty, r.supplier]);
+    const matBody = materials.map(r => [r.type, r.name, r.unit, r.qty, r.supplier]);
     printTable('Materials Received', ['Type', 'Name', 'Unit', 'Qty', 'Supplier'], matBody);
 
     // Work
-    const wkBody = data.work.map(r => [r.desc, r.grid, r.qty, r.unit, r.status]);
+    const wkBody = work.map(r => [r.desc, r.grid, r.qty, r.unit, r.status]);
     printTable('Work Progress', ['Desc', 'Grid', 'Qty', 'Unit', 'Status'], wkBody);
 
     // Reconciliation
-    const rcBody = data.reconciliation.map(r => [r.item, r.unit, r.theory, r.actual, r.diff, r.note]);
+    const rcBody = reconciliation.map(r => [r.item, r.unit, r.theory, r.actual, r.diff, r.note]);
     printTable('Quantity Reconciliation', ['Item', 'Unit', 'Theory', 'Actual', 'Diff', 'Note'], rcBody);
 
     // Plan for Tomorrow (New)
@@ -98,36 +144,43 @@ const drawDPRPage = (doc, data, photos = []) => {
     }
 
     // Remarks
-    if (data.remarks.hindrances || data.remarks.safety) {
+    if (remarks.hindrances || remarks.safety) {
         if (y > 240) { doc.addPage(); y = 20; }
         doc.setFontSize(11).setTextColor(220, 38, 38).setFont('helvetica', 'bold');
         doc.text("Remarks / Issues:", m, y + 5);
         doc.setFontSize(10).setTextColor(50).setFont('helvetica', 'normal');
 
-        const splitHind = doc.splitTextToSize(`Hindrances: ${data.remarks.hindrances}`, 180);
+        const splitHind = doc.splitTextToSize(`Hindrances: ${remarks.hindrances}`, 180);
         doc.text(splitHind, m, y + 12);
         y += (splitHind.length * 5) + 5;
 
-        const splitSafe = doc.splitTextToSize(`Safety: ${data.remarks.safety}`, 180);
+        const splitSafe = doc.splitTextToSize(`Safety: ${remarks.safety}`, 180);
         doc.text(splitSafe, m, y + 5);
         y += (splitSafe.length * 5) + 10;
     }
 
     // Photos
-    if (photos.length > 0) {
+    if (safePhotos.length > 0) {
         if (y > 200) { doc.addPage(); y = 20; }
         doc.setFontSize(12).setTextColor(0, 86, 179).setFont('helvetica', 'bold');
         doc.text("Site Photos", m, y);
         y += 10;
 
         let x = m;
-        photos.forEach((img) => {
+        safePhotos.forEach((img) => {
             if (x > 130) { x = m; y += 60; }
             if (y > 240) { doc.addPage(); y = 20; x = m; }
             try {
-                doc.addImage(img, 'JPEG', x, y, 50, 50);
+                // Auto-detect format (pass undefined/null as second arg)
+                doc.addImage(img, undefined, x, y, 50, 50);
                 x += 60;
-            } catch (e) { console.error(e); }
+            } catch (e) {
+                console.error("Image add error:", e);
+                // Try fallback to JPEG if auto-detect fails
+                try {
+                    doc.addImage(img, 'JPEG', x, y, 50, 50);
+                } catch (e2) { console.error("Retry JPEG failed:", e2); }
+            }
         });
         y += 60;
     }
@@ -137,7 +190,7 @@ const drawDPRPage = (doc, data, photos = []) => {
     autoTable(doc, {
         startY: y + 10,
         head: [['Prepared By', 'Reviewed By', 'Approved By']],
-        body: [[data.signatures.prepared, data.signatures.reviewed, data.signatures.approved]],
+        body: [[signatures.prepared, signatures.reviewed, signatures.approved]],
         theme: 'plain',
         styles: { halign: 'center', valign: 'bottom', minCellHeight: 25, fontSize: 10 },
         headStyles: { fontStyle: 'normal', textColor: 100 }

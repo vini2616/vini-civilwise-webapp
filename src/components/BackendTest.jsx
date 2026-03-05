@@ -31,7 +31,7 @@ const BackendTest = () => {
         const password = 'password123';
 
         // Try Register
-        const regRes = await api.register('Web User', email, password);
+        const regRes = await api.register('Web User', email, password, 'Owner');
         if (regRes.token) {
             addLog('✅ Registration Passed', 'success');
             setToken(regRes.token);
@@ -48,7 +48,7 @@ const BackendTest = () => {
             // 3. Notes
             addLog('Testing Notes...', 'info');
             const noteRes = await api.createNote(loginRes.token, { title: 'Web Note', body: 'Hello from React' });
-            if (noteRes._id) {
+            if (noteRes.id || noteRes._id) {
                 addLog('✅ Create Note Passed', 'success');
             } else {
                 addLog('❌ Create Note Failed', 'error');
@@ -66,12 +66,16 @@ const BackendTest = () => {
 
             // Create Company
             const compRes = await api.createCompany(loginRes.token, { name: 'Test Corp', address: '123 St', mobile: '9999999999' });
-            if (compRes._id) {
+            const compId = compRes.id || compRes._id;
+
+            if (compId) {
                 addLog('✅ Create Company Passed', 'success');
 
                 // Create Site
-                const siteRes = await api.createSite(loginRes.token, { name: 'Test Site', address: 'Site Addr', companyId: compRes._id });
-                if (siteRes._id) {
+                const siteRes = await api.createSite(loginRes.token, { name: 'Test Site', address: 'Site Addr', companyId: compId });
+                const siteId = siteRes.id || siteRes._id;
+
+                if (siteId) {
                     addLog('✅ Create Site Passed', 'success');
 
                     // Create Transaction
@@ -79,9 +83,9 @@ const BackendTest = () => {
                         amount: 1000,
                         type: 'debit',
                         category: 'Material',
-                        siteId: siteRes._id
+                        siteId: siteId
                     });
-                    if (txRes._id) {
+                    if (txRes.id || txRes._id) {
                         addLog('✅ Create Transaction Passed', 'success');
                     } else {
                         addLog('❌ Create Transaction Failed', 'error');
@@ -92,10 +96,10 @@ const BackendTest = () => {
                 }
 
                 // 5. Cleanup (Delete Site)
-                if (siteRes._id) {
+                if (siteId) {
                     addLog('Testing Deletion...', 'info');
                     try {
-                        const delRes = await api.deleteSite(loginRes.token, siteRes._id);
+                        const delRes = await api.deleteSite(loginRes.token, siteId);
                         addLog('✅ Delete Site Passed', 'success');
                     } catch (err) {
                         addLog(`❌ Delete Site Failed: ${err.message}`, 'error');

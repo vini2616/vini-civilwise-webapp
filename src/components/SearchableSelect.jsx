@@ -127,18 +127,27 @@ const SearchableSelect = ({ options, value, onChange, placeholder = "Select...",
                         )}
                     </div>
 
-                    {/* ADD NEW OPTION - VISIBLE ONLY IF SEARCH TERM EXISTS */}
-                    {onAddNew && searchTerm.trim().length > 0 && (
+                    {/* ADD NEW OPTION - ALWAYS VISIBLE IF ENABLED */}
+                    {onAddNew && (
                         <div
                             className="searchable-select__add-new"
-                            onClick={(e) => {
+                            style={{
+                                borderTop: '1px solid #eee',
+                                color: '#3b82f6',
+                                fontWeight: '500',
+                                cursor: 'pointer',
+                                padding: '10px 12px',
+                                background: '#f8fafc'
+                            }}
+                            onMouseDown={(e) => {
+                                e.preventDefault(); // Prevent blur
                                 e.stopPropagation();
                                 onAddNew(searchTerm);
                                 setIsOpen(false);
                                 setSearchTerm('');
                             }}
                         >
-                            + {addNewLabel} "{searchTerm}"
+                            + {searchTerm.trim().length > 0 ? `${addNewLabel} "${searchTerm}"` : addNewLabel}
                         </div>
                     )}
                 </div>
