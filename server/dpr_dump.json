@@ -1,0 +1,31 @@
+[
+  {
+    "id": "69368b32634bb44e04379dac",
+    "date": "2025-12-08",
+    "dprNo": "5",
+    "manpowerKeys": [
+      "0"
+    ],
+    "manpowerLength": 1,
+    "materialsLength": 1,
+    "allKeys": [
+      "_id",
+      "siteId",
+      "userId",
+      "projectInfo",
+      "manpower",
+      "workStarted",
+      "equipment",
+      "materials",
+      "work",
+      "reconciliation",
+      "planTomorrow",
+      "remarks",
+      "signatures",
+      "photos",
+      "createdAt",
+      "updatedAt",
+      "__v"
+    ]
+  }
+]

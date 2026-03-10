@@ -1,0 +1,19 @@
+Found 3 users:
+User: Vini
+  ID: 69419e8300061fbd00474612
+  Role: Owner
+  CompanyId: 6932ac70835e83062e08cd96
+  Sites: 
+-------------------
+User: maitrik
+  ID: 694e4d266ba2aae35750a0a0
+  Role: Owner
+  CompanyId: 694cd6df0e6f6703bec365d2
+  Sites: 694cd6df0e6f6703bec365d6
+-------------------
+User: coffin
+  ID: 694e557f5b7a3f0c0eaa0ff2
+  Role: Engineer
+  CompanyId: 694cd6df0e6f6703bec365d2
+  Sites: 694cd6df0e6f6703bec365d6
+-------------------

@@ -1,0 +1,31 @@
+import mongoose from 'mongoose';
+import User from './src/models/User';
+
+async function checkCoffin() {
+    try {
+        console.log('Connecting to MongoDB...');
+        await mongoose.connect('mongodb://127.0.0.1:27017/vini_app');
+        console.log('MongoDB Connected');
+
+        const user = await User.findOne({ username: 'coffin' });
+
+        if (user) {
+            console.log('---------------------------------------------------');
+            console.log(`User: ${user.name} (${user.username})`);
+            console.log(`Role: ${user.role}`);
+            console.log(`Permission (Global): '${user.permission}'`);
+            console.log(`Module Permissions:`, user.modulePermissions);
+            console.log('---------------------------------------------------');
+        } else {
+            console.log('User "coffin" not found.');
+        }
+
+    } catch (error) {
+        console.error('Error:', error);
+    } finally {
+        await mongoose.disconnect();
+        process.exit(0);
+    }
+}
+
+checkCoffin();

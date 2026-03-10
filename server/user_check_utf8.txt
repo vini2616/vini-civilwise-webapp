@@ -1,0 +1,40 @@
+﻿[dotenv@17.2.3] injecting env (8) from .env -- tip: ≡ƒöÉ encrypt with Dotenvx: https://dotenvx.com
+Database connected.
+All Users: [
+  {
+    "id": 1,
+    "username": "vini",
+    "email": "vini@admin.com"
+  },
+  {
+    "id": 5,
+    "username": "coffin",
+    "email": "coffin@vini.app"
+  }
+]
+Found user 'coffin': {
+  "modulePermissions": {},
+  "sites": [
+    1,
+    2,
+    3,
+    4
+  ],
+  "companies": [
+    2,
+    1
+  ],
+  "id": 5,
+  "name": "coffin",
+  "username": "coffin",
+  "email": "coffin@vini.app",
+  "passwordHash": "$2b$10$SuHaMJ8Yb0uabxk0DbI2Ye4Uo5PS3mtYtWi55C/VquapZvnVsFAbO",
+  "role": "Engineer",
+  "mobile": "9999999999",
+  "salary": 0,
+  "permissions": "[]",
+  "permission": "full_control",
+  "companyId": 1,
+  "createdAt": "2026-02-04T07:48:25.000Z",
+  "updatedAt": "2026-02-11T15:38:44.000Z"
+}

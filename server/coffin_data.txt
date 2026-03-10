@@ -1,0 +1,17 @@
+
+--- ALL SITES ---
+ID: 6931d996c9d7db821a450eb1, Name: Test Site
+ID: 69325f094c7628ead01a1ff5, Name: Main Site
+ID: 69326b2ed922667c6aeacb51, Name: Main Site
+ID: 6932953b36d96c42fdf90fd7, Name: abode
+ID: 69329808f0490059202da45e, Name: 123
+ID: 6932991fda6f8fede84bfa2f, Name: Main Site
+ID: 6932992cda6f8fede84bfa38, Name: abode
+ID: 6932ac70835e83062e08cd99, Name: Main Site
+ID: 6932ac7c835e83062e08cd9c, Name: abode
+
+--- USER: coffin ---
+User ID: 6932a00b78e4f90126f57ac4
+Sites:
+- 6932991fda6f8fede84bfa2f
+Company: 6932ac70835e83062e08cd96

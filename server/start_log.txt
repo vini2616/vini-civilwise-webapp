@@ -1,0 +1,52 @@
+[dotenv@17.2.3] injecting env (8) from .env -- tip: ⚙️  override existing env vars with { override: true }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  enable debug logging with { debug: true }
+Server running in development mode on port 5000
+Server process updated: Ready for deleted sites.
+MySQL Connected via Sequelize
+Unable to connect to the database: Error
+    at Query.run (C:\backup\VINI anti\vini\server\node_modules\sequelize\src\dialects\mysql\query.js:46:25)
+    at C:\backup\VINI anti\vini\server\node_modules\sequelize\src\sequelize.js:650:28
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async User.sync (C:\backup\VINI anti\vini\server\node_modules\sequelize\src\model.js:1408:11)
+    at async Sequelize.sync (C:\backup\VINI anti\vini\server\node_modules\sequelize\src\sequelize.js:825:9)
+    at async connectDB (C:\backup\VINI anti\vini\server\src\config\sequelize.ts:29:9) {
+  name: 'SequelizeDatabaseError',
+  parent: Error: Too many keys specified; max 64 keys allowed
+      at Packet.asError (C:\backup\VINI anti\vini\server\node_modules\mysql2\lib\packets\packet.js:740:17)
+      at Query.execute (C:\backup\VINI anti\vini\server\node_modules\mysql2\lib\commands\command.js:29:26)
+      at Connection.handlePacket (C:\backup\VINI anti\vini\server\node_modules\mysql2\lib\base\connection.js:508:34)
+      at PacketParser.onPacket (C:\backup\VINI anti\vini\server\node_modules\mysql2\lib\base\connection.js:93:12)
+      at PacketParser.executeStart (C:\backup\VINI anti\vini\server\node_modules\mysql2\lib\packet_parser.js:75:16)
+      at Socket.<anonymous> (C:\backup\VINI anti\vini\server\node_modules\mysql2\lib\base\connection.js:100:25)
+      at Socket.emit (node:events:507:28)
+      at Socket.emit (node:domain:489:12)
+      at addChunk (node:internal/streams/readable:559:12)
+      at readableAddChunkPushByteMode (node:internal/streams/readable:510:3) {
+    code: 'ER_TOO_MANY_KEYS',
+    errno: 1069,
+    sqlState: '42000',
+    sqlMessage: 'Too many keys specified; max 64 keys allowed',
+    sql: 'ALTER TABLE `users` CHANGE `username` `username` VARCHAR(255) NOT NULL UNIQUE;',
+    parameters: undefined
+  },
+  original: Error: Too many keys specified; max 64 keys allowed
+      at Packet.asError (C:\backup\VINI anti\vini\server\node_modules\mysql2\lib\packets\packet.js:740:17)
+      at Query.execute (C:\backup\VINI anti\vini\server\node_modules\mysql2\lib\commands\command.js:29:26)
+      at Connection.handlePacket (C:\backup\VINI anti\vini\server\node_modules\mysql2\lib\base\connection.js:508:34)
+      at PacketParser.onPacket (C:\backup\VINI anti\vini\server\node_modules\mysql2\lib\base\connection.js:93:12)
+      at PacketParser.executeStart (C:\backup\VINI anti\vini\server\node_modules\mysql2\lib\packet_parser.js:75:16)
+      at Socket.<anonymous> (C:\backup\VINI anti\vini\server\node_modules\mysql2\lib\base\connection.js:100:25)
+      at Socket.emit (node:events:507:28)
+      at Socket.emit (node:domain:489:12)
+      at addChunk (node:internal/streams/readable:559:12)
+      at readableAddChunkPushByteMode (node:internal/streams/readable:510:3) {
+    code: 'ER_TOO_MANY_KEYS',
+    errno: 1069,
+    sqlState: '42000',
+    sqlMessage: 'Too many keys specified; max 64 keys allowed',
+    sql: 'ALTER TABLE `users` CHANGE `username` `username` VARCHAR(255) NOT NULL UNIQUE;',
+    parameters: undefined
+  },
+  sql: 'ALTER TABLE `users` CHANGE `username` `username` VARCHAR(255) NOT NULL UNIQUE;',
+  parameters: {}
+}

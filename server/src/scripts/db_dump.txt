@@ -1,0 +1,142 @@
+COMPANIES:
+==========================================
+Company: "Test Corp"
+   ID: 694cd2961c0bb46b5d4a796f
+   OwnerID: 694cd2951c0bb46b5d4a7966
+------------------------------------------
+Company: "MARUTI PROCON"
+   ID: 694cd6df0e6f6703bec365d2
+   OwnerID: 69419e8300061fbd00474612
+------------------------------------------
+Company: "Test"
+   ID: 69556d503a020fe2d8e8b578
+   OwnerID: 69419e8300061fbd00474612
+------------------------------------------
+
+SITES:
+==========================================
+Site: "Main Site"
+   ID: 69325f094c7628ead01a1ff5
+   CompanyID: 69325f094c7628ead01a1ff2
+   DeletedAt: NULL
+------------------------------------------
+Site: "Main Site (1)"
+   ID: 69326b2ed922667c6aeacb51
+   CompanyID: 69326b2ed922667c6aeacb4e
+   DeletedAt: NULL
+------------------------------------------
+Site: "abode"
+   ID: 6932953b36d96c42fdf90fd7
+   CompanyID: 69326b2ed922667c6aeacb4e
+   DeletedAt: NULL
+------------------------------------------
+Site: "123"
+   ID: 69329808f0490059202da45e
+   CompanyID: 69326b2ed922667c6aeacb4e
+   DeletedAt: NULL
+------------------------------------------
+Site: "Main Site (2)"
+   ID: 6932991fda6f8fede84bfa2f
+   CompanyID: 6932991fda6f8fede84bfa2c
+   DeletedAt: NULL
+------------------------------------------
+Site: "abode (1)"
+   ID: 6932992cda6f8fede84bfa38
+   CompanyID: 6932991fda6f8fede84bfa2c
+   DeletedAt: NULL
+------------------------------------------
+Site: "abode (2)"
+   ID: 6932ac7c835e83062e08cd9c
+   CompanyID: 6932ac70835e83062e08cd96
+   DeletedAt: NULL
+------------------------------------------
+Site: "Abode"
+   ID: 693562a54c1ebd7811c94e38
+   CompanyID: 69325f094c7628ead01a1ff2
+   DeletedAt: NULL
+------------------------------------------
+Site: "test"
+   ID: 693562ad4c1ebd7811c94e3b
+   CompanyID: 69325f094c7628ead01a1ff2
+   DeletedAt: NULL
+------------------------------------------
+Site: "Main Site"
+   ID: 693562bb4c1ebd7811c94e43
+   CompanyID: 693562bb4c1ebd7811c94e3e
+   DeletedAt: NULL
+------------------------------------------
+Site: "Main Site"
+   ID: 693565d34c1ebd7811c94e7e
+   CompanyID: 693565d34c1ebd7811c94e7a
+   DeletedAt: NULL
+------------------------------------------
+Site: "het"
+   ID: 693568726e6beb86129e0180
+   CompanyID: 6932ac70835e83062e08cd96
+   DeletedAt: NULL
+------------------------------------------
+Site: "Main Site"
+   ID: 69356c0624c3b7a9dcb6d3a6
+   CompanyID: 69356c0624c3b7a9dcb6d3a3
+   DeletedAt: NULL
+------------------------------------------
+Site: "coffin"
+   ID: 69356d9924c3b7a9dcb6d404
+   CompanyID: 693565d34c1ebd7811c94e7a
+   DeletedAt: NULL
+------------------------------------------
+Site: "Test Site"
+   ID: 6936fc76f134a21ee67fd577
+   CompanyID: 6936fc76f134a21ee67fd574
+   DeletedAt: NULL
+------------------------------------------
+Site: "Test Site"
+   ID: 69418dba77f50814fe9ded7b
+   CompanyID: 69418dba77f50814fe9ded78
+   DeletedAt: NULL
+------------------------------------------
+Site: "Test Site"
+   ID: 69418dbf77f50814fe9ded8d
+   CompanyID: 69418dbe77f50814fe9ded8a
+   DeletedAt: NULL
+------------------------------------------
+Site: "Test Site"
+   ID: 694cd2961c0bb46b5d4a7972
+   CompanyID: 694cd2961c0bb46b5d4a796f
+   DeletedAt: NULL
+------------------------------------------
+Site: "Main Site"
+   ID: 694cd6df0e6f6703bec365d6
+   CompanyID: 694cd6df0e6f6703bec365d2
+   DeletedAt: NULL
+------------------------------------------
+Site: "abode"
+   ID: 694eb8c09054a32cd261c091
+   CompanyID: 694cd6df0e6f6703bec365d2
+   DeletedAt: NULL
+------------------------------------------
+Site: "Main Site"
+   ID: 69556d503a020fe2d8e8b57b
+   CompanyID: 69556d503a020fe2d8e8b578
+   DeletedAt: NULL
+------------------------------------------
+Site: "Recycle Bin Test Site"
+   ID: 695573629e142f47c578af53
+   CompanyID: 69325f094c7628ead01a1ff2
+   DeletedAt: 2025-12-31T19:02:58.584Z
+   PermanentDeleteAt: 2026-01-15T19:02:58.584Z
+------------------------------------------
+Site: "Recycle Bin Test Site"
+   ID: 6955743650f997dc5dd82157
+   CompanyID: 69325f094c7628ead01a1ff2
+   DeletedAt: 2025-12-31T19:06:30.284Z
+   PermanentDeleteAt: 2026-01-15T19:06:30.284Z
+------------------------------------------
+Site: "Restorable Test Site"
+   ID: 69557488fe6c9dc714ca056c
+   CompanyID: 69556d503a020fe2d8e8b578
+   DeletedAt: 2025-12-31T19:07:52.566Z
+   PermanentDeleteAt: 2026-01-15T19:07:52.566Z
+------------------------------------------
+
+Summary: 3 deleted sites found.

@@ -1,0 +1,34 @@
+{
+  "user": {
+    "companies": [],
+    "_id": "694e557f5b7a3f0c0eaa0ff2",
+    "name": "coffin",
+    "username": "coffin",
+    "email": "coffin@vini.app",
+    "mobile": "9925037168",
+    "salary": 50000,
+    "passwordHash": "$2b$10$JoepzKEdWRX7LJZ1UEcg/.HeFhsOmFIJc1Oo8BEYusmikZMWwjkcC",
+    "role": "Engineer",
+    "permission": "view_edit",
+    "modulePermissions": {
+      "team": "no_access",
+      "estimation": "no_access",
+      "account": "no_access",
+      "inventory": "no_access",
+      "vendor-contractor": "no_access",
+      "bills": "no_access",
+      "document": "view_only"
+    },
+    "permissions": [],
+    "sites": [
+      "694cd6df0e6f6703bec365d6",
+      "694eb8c09054a32cd261c091",
+      "695571093a020fe2d8e8caf7",
+      "6955cb9b11388ccbf7256140"
+    ],
+    "companyId": "694cd6df0e6f6703bec365d2",
+    "createdAt": "2025-12-26T09:29:35.382Z",
+    "__v": 3
+  },
+  "env": "Set"
+}
