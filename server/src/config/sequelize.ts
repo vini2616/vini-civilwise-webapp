@@ -9,8 +9,15 @@ const sequelize = new Sequelize(
     process.env.DB_PASS || '',
     {
         host: process.env.DB_HOST || 'localhost',
+        port: process.env.DB_PORT ? parseInt(process.env.DB_PORT, 10) : 3306,
         dialect: 'mysql',
         logging: false, // Set to console.log to see SQL queries
+        dialectOptions: process.env.NODE_ENV === 'production' ? {
+            ssl: {
+                require: true,
+                rejectUnauthorized: false // Aiven often requires this if not passing the CA cert directly
+            }
+        } : {},
         pool: {
             max: 5,
             min: 0,
